@@ -366,10 +366,8 @@ class DownloadService:
         series_dir = Path(channel.target_folder) / channel.name
         series_dir.mkdir(parents=True, exist_ok=True)
 
-        first_media_info = self.find_info_for_media(media_files[0]) if media_files else {}
-
         if getattr(channel, "create_nfo", True):
-            self.create_tvshow_nfo(channel, series_dir, first_media_info)
+            self.create_tvshow_nfo(channel, series_dir)
 
         mode = self.get_playlist_mode(channel)
         playlist_name = self.clean_filename(getattr(channel, "playlist_name", ""))
@@ -1091,43 +1089,22 @@ class DownloadService:
         return True
 
 
-    def create_tvshow_nfo(self, channel, series_dir: Path, info: dict | None = None):
+    def create_tvshow_nfo(self, channel, series_dir: Path):
         """Schreibt/aktualisiert tvshow.nfo für die Plex-Serie.
 
-        Serie = YouTube-Kanal. Die Infos kommen aus den gespeicherten
-        Kanal-Einstellungen und, wenn vorhanden, aus der aktuellen yt-dlp
-        info.json des geladenen Videos. Dadurch stehen in Plex deutlich mehr
-        Kanal-/Serieninfos, ohne dass die Bildlogik angefasst wird.
+        Serie = YouTube-Kanal. Deshalb kommen hier Kanalname, Kanalbeschreibung,
+        Kanal-URL und bekannte Zusatzinfos hinein. Bestehende tvshow.nfo wird
+        bewusst überschrieben, damit nach dem erneuten Import nicht weiter eine
+        alte leere NFO stehen bleibt.
         """
         nfo_path = series_dir / "tvshow.nfo"
-        info = info or {}
 
         def first_text(*values):
             for value in values:
                 text_value = str(value or "").strip()
-                if text_value and text_value.lower() not in {"none", "null", "nan", "ohne titel", "untitled"}:
+                if text_value:
                     return text_value
             return ""
-
-        def first_number(*values):
-            for value in values:
-                if value is None or value == "":
-                    continue
-                try:
-                    number = int(value)
-                    if number >= 0:
-                        return str(number)
-                except Exception:
-                    text_value = str(value).strip()
-                    if text_value:
-                        return text_value
-            return ""
-
-        def date_from_yt(value):
-            text_value = str(value or "").strip()
-            if len(text_value) == 8 and text_value.isdigit():
-                return f"{text_value[0:4]}-{text_value[4:6]}-{text_value[6:8]}"
-            return text_value
 
         def add(parent, tag, value):
             value = str(value or "").strip()
@@ -1151,32 +1128,25 @@ class DownloadService:
         channel_name = first_text(
             getattr(channel, "name", ""),
             getattr(channel, "youtube_name", ""),
-            info.get("channel"),
-            info.get("uploader"),
-            info.get("channel_title"),
+            getattr(channel, "title", ""),
             "YouTube-Kanal",
         )
         youtube_name = first_text(
             getattr(channel, "youtube_name", ""),
             getattr(channel, "youtube_title", ""),
             getattr(channel, "channel_title", ""),
-            info.get("channel"),
-            info.get("uploader"),
             channel_name,
         )
         channel_url = first_text(
             getattr(channel, "original_channel_url", ""),
             getattr(channel, "channel_url", ""),
             getattr(channel, "source_url", ""),
-            info.get("channel_url"),
-            info.get("uploader_url"),
             getattr(channel, "url", ""),
         )
         channel_id = first_text(
             getattr(channel, "channel_id", ""),
             getattr(channel, "youtube_channel_id", ""),
-            info.get("channel_id"),
-            info.get("uploader_id"),
+            getattr(channel, "uploader_id", ""),
         )
         description = first_text(
             getattr(channel, "description", ""),
@@ -1184,34 +1154,24 @@ class DownloadService:
             getattr(channel, "about", ""),
             getattr(channel, "plot", ""),
         )
-        # yt-dlp liefert bei Video-info.json oft nur die Videobeschreibung.
-        # Die nutzen wir nur als letzten Zusatz, nicht als Haupt-Kanalbeschreibung.
-        video_description = first_text(info.get("description"))
         if not description:
             description = f"YouTube-Kanal: {youtube_name}"
             if channel_url:
                 description += f"\n\nQuelle: {channel_url}"
 
-        subscriber_count = first_number(
+        subscriber_count = first_text(
             getattr(channel, "subscriber_count", ""),
             getattr(channel, "subscribers", ""),
-            info.get("channel_follower_count"),
-            info.get("subscriber_count"),
         )
-        video_count = first_number(
+        video_count = first_text(
             getattr(channel, "video_count", ""),
             getattr(channel, "videos_count", ""),
-            info.get("channel_video_count"),
-            info.get("playlist_count"),
-            info.get("n_entries"),
         )
         playlist_name = first_text(getattr(channel, "playlist_name", ""))
         playlist_url = first_text(
             getattr(channel, "playlist_original", ""),
             getattr(channel, "playlist_url", ""),
         )
-        upload_date = date_from_yt(first_text(info.get("upload_date")))
-        webpage_url = first_text(info.get("webpage_url"), info.get("original_url"))
 
         details = []
         if channel_url:
@@ -1221,19 +1181,15 @@ class DownloadService:
         if subscriber_count:
             details.append(f"Abonnenten: {subscriber_count}")
         if video_count:
-            details.append(f"Bekannte Videos/Einträge: {video_count}")
+            details.append(f"Videos: {video_count}")
         if playlist_name:
             details.append(f"Aktuelle Playlist/Staffel: {playlist_name}")
         if playlist_url:
             details.append(f"Playlist-Link: {playlist_url}")
-        if webpage_url:
-            details.append(f"Letztes importiertes Video: {webpage_url}")
 
         full_plot = description
-        if video_description and video_description != description:
-            full_plot += "\n\nLetzte Videobeschreibung:\n" + video_description[:1200]
         if details:
-            full_plot = full_plot.rstrip() + "\n\n" + "\n".join(details)
+            full_plot = description.rstrip() + "\n\n" + "\n".join(details)
 
         tvshow = ET.Element("tvshow")
         add(tvshow, "title", channel_name)
@@ -1245,14 +1201,10 @@ class DownloadService:
         add(tvshow, "tagline", f"YouTube-Kanal: {youtube_name}")
         add(tvshow, "studio", youtube_name)
         add(tvshow, "genre", "YouTube")
-        add(tvshow, "genre", "Online-Video")
         add(tvshow, "tag", "YouTube")
         add(tvshow, "tag", youtube_name)
-        if playlist_name:
-            add(tvshow, "tag", playlist_name)
         add(tvshow, "status", "Continuing")
-        add(tvshow, "premiered", first_text(getattr(channel, "created_at", ""), getattr(channel, "channel_created", ""), upload_date))
-        add(tvshow, "year", first_text(upload_date[:4] if upload_date else ""))
+        add(tvshow, "premiered", first_text(getattr(channel, "created_at", ""), getattr(channel, "channel_created", "")))
         add(tvshow, "thumb", "poster.jpg")
         if (series_dir / "fanart.jpg").exists():
             add(tvshow, "fanart", "fanart.jpg")
@@ -1261,10 +1213,6 @@ class DownloadService:
             add_uniqueid(tvshow, channel_url, "youtube", default=True)
         if channel_id:
             add_uniqueid(tvshow, channel_id, "youtube-channel-id")
-        if subscriber_count:
-            add(tvshow, "votes", subscriber_count)
-        if video_count:
-            add(tvshow, "episodeguide", f"Bekannte Videos/Einträge: {video_count}")
 
         self.write_xml(nfo_path, tvshow)
     def create_season_nfo(self, season_dir: Path, channel, season: int, playlist_name: str = ""):
