@@ -63,10 +63,25 @@ def build_exe():
     print(f"EXE erstellt: {EXE_FILE}")
 
 
+def find_inno_setup():
+    candidates = [
+        shutil.which("iscc"),
+        shutil.which("ISCC"),
+        r"C:\Program Files (x86)\Inno Setup 6\ISCC.exe",
+        r"C:\Program Files\Inno Setup 6\ISCC.exe",
+    ]
+
+    for candidate in candidates:
+        if candidate and Path(candidate).exists():
+            return candidate
+
+    return None
+
+
 def build_setup():
     print("Versuche Setup.exe zu bauen...")
 
-    iscc = shutil.which("iscc") or shutil.which("ISCC")
+    iscc = find_inno_setup()
 
     if not iscc:
         print("WARNUNG: Inno Setup Compiler wurde nicht gefunden.")
@@ -81,6 +96,9 @@ def build_setup():
     run([iscc, str(INSTALLER_SCRIPT)])
 
     setup_files = sorted(RELEASE_DIR.glob("MediaHub_Setup*.exe"))
+
+    if not setup_files:
+        setup_files = sorted((ROOT / "release").glob("*.exe"))
 
     if not setup_files:
         print("WARNUNG: Setup.exe wurde nicht gefunden.")
