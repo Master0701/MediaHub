@@ -47,7 +47,6 @@ from src.mediahub.gui.recovery_center import RecoveryCenter
 from src.mediahub.gui.help_center import HelpCenter
 from src.mediahub.gui.assistant_panel import AssistantPanel
 from src.mediahub.gui.plugin_center import PluginCenter
-from src.mediahub.gui.release_gate import open_release_assistant_with_gate
 from src.mediahub.gui.video_selection_dialog import VideoSelectionDialog
 from src.mediahub.gui.setup_wizard import SetupWizard
 
@@ -196,10 +195,6 @@ class MainWindow(QMainWindow):
         tools_menu.addAction("Scheduler-Automatik umschalten", self.toggle_scheduler_automatic)
         tools_menu.addAction("Download-Warteschlange", self.open_download_queue)
         tools_menu.addAction("Download abbrechen", self.cancel_download)
-
-
-        extras_menu = menu.addMenu("Extras")
-        extras_menu.addAction("Release-Assistent", self.open_release_assistant)
 
         help_menu = menu.addMenu("Hilfe")
         action_help_center = QAction("Hilfe-Center", self)
@@ -696,10 +691,6 @@ class MainWindow(QMainWindow):
                 self.channel_panel.update_current_info()
                 self.library_manager.refresh()
                 self.statistics_manager.refresh_dashboard()
-
-
-    def open_release_assistant(self):
-        open_release_assistant_with_gate(self, self.base_dir, APP_VERSION)
 
     def open_tool_center(self):
         self.tool_manager.open_tool_center()

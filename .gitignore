@@ -190,3 +190,19 @@ tools/*.7z
 *.m4a
 *.flac
 *.wav
+config/.mh_gate.json
+config/mh_gate.json
+private_tools/
+tools/__pycache__/
+*.spec
+# MediaHub Release-Assistent
+config/.mh_gate.json
+
+# Passwort-Tool (separates Projekt)
+tools/mediahub_password_tool.py
+tools/build_password_tool_exe.py
+
+# Build-Ausgaben
+dist/
+build/
+*.spec
