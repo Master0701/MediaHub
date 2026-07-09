@@ -1,0 +1,47 @@
+name: MediaHub Build Check
+
+on:
+  push:
+    branches:
+      - main
+  pull_request:
+    branches:
+      - main
+
+jobs:
+  build-check:
+    name: Build MediaHub on Windows
+    runs-on: windows-latest
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v6
+
+      - name: Set up Python
+        uses: actions/setup-python@v6
+        with:
+          python-version: "3.13"
+          cache: "pip"
+
+      - name: Install Python dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt
+          pip install pyinstaller pillow reportlab python-docx markdown
+
+      - name: Build documentation
+        run: |
+          python build_docs.py
+
+      - name: Build MediaHub EXE
+        run: |
+          python -m PyInstaller --clean --noconfirm MediaHub.spec
+
+      - name: Upload EXE artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: MediaHub-Build-Check
+          path: |
+            dist/MediaHub.exe
+            assets/docs/
+          if-no-files-found: error
