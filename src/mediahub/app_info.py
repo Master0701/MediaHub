@@ -1,0 +1,6 @@
+APP_NAME = "MediaHub"
+APP_VERSION = "1.0.0"
+APP_AUTHOR = "MediaHub"
+APP_DESCRIPTION = "MediaHub - YouTube Kanal-, Playlist- und Download-Verwaltung"
+APP_COPYRIGHT = "Copyright © 2026 MediaHub"
+APP_WEBSITE = ""

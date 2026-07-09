@@ -1,0 +1,20 @@
+{
+    "images": [
+        {
+            "file": "01_startseite.png",
+            "output": "01_startseite_marked.png",
+            "caption": "Startseite mit Werkzeugleiste",
+            "markers": [
+                {"number": 1, "label": "Wizard", "x": 70, "y": 55},
+                {"number": 2, "label": "Neu", "x": 125, "y": 55},
+                {"number": 3, "label": "Tools", "x": 185, "y": 55},
+                {"number": 4, "label": "PM", "x": 245, "y": 55},
+                {"number": 5, "label": "Vorschau", "x": 330, "y": 55},
+                {"number": 6, "label": "Videos", "x": 420, "y": 55},
+                {"number": 7, "label": "Sync", "x": 500, "y": 55},
+                {"number": 8, "label": "Stop", "x": 565, "y": 55},
+                {"number": 9, "label": "Hilfe", "x": 630, "y": 55}
+            ]
+        }
+    ]
+}
