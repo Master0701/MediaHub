@@ -75,11 +75,9 @@ class PlaylistManager:
 
     def select_playlists_and_download(self):
         channel = self.controller.get_current_channel()
-
         if channel is None:
             self.log_panel.write("Kein Kanal ausgewählt.")
             return
-
         if not self.can_start_download():
             return
 
@@ -88,59 +86,48 @@ class PlaylistManager:
 
         try:
             playlists = self.playlist_service.load_playlists(channel)
-
             if not playlists:
                 self.log_panel.write("Keine Playlists gefunden.")
                 self.update_status("Keine Playlists gefunden")
                 return
 
-            channel.playlist_settings = self.playlist_service.sync_playlist_settings(
-                channel,
-                playlists
-            )
+            channel.playlist_settings = self.playlist_service.sync_playlist_settings(channel, playlists)
             self.controller.save()
 
-            selected_playlists = self.playlist_service.prepare_active_playlists_for_download(
-                channel,
-                playlists
-            )
-
+            selected_playlists = self.playlist_service.prepare_active_playlists_for_download(channel, playlists)
             if not selected_playlists:
                 self.log_panel.write("Keine aktive Playlist im Playlist-Manager gefunden.")
                 self.update_status("Keine aktive Playlist")
                 return
 
-            self.log_panel.write(
-                f"{len(selected_playlists)} aktive Playlists aus dem Playlist-Manager."
-            )
+            self.log_panel.write(f"{len(selected_playlists)} aktive Playlists aus dem Playlist-Manager.")
 
             load_dialog = VideoLoadDialog(self.main_window)
-
             if not load_dialog.exec():
                 self.log_panel.write("Videoliste abgebrochen.")
                 self.update_status("Bereit")
                 return
 
             all_videos = []
-
+            clean_selected = []
             for playlist in selected_playlists:
                 playlist_title = playlist.get("title", "Ohne Titel")
+                playlist_url = playlist.get("url", "")
+                if hasattr(self.youtube_service, "normalize_playlist_url"):
+                    playlist_url = self.youtube_service.normalize_playlist_url(playlist_url or playlist.get("id", ""))
+                    if not playlist_url:
+                        self.log_panel.write(f"Ungültige Playlist übersprungen: {playlist_title}")
+                        continue
+                    playlist["url"] = playlist_url
+                    if hasattr(self.youtube_service, "_playlist_id_from_value"):
+                        playlist["id"] = self.youtube_service._playlist_id_from_value(playlist_url)
+
+                clean_selected.append(playlist)
                 display_name = playlist.get("display_name", playlist_title)
                 season = playlist.get("season", 1)
-
-                self.log_panel.write(
-                    f"Lade Playlist: {playlist_title} → Plex-Name: {display_name} | Staffel {season}"
-                )
-
-                videos = self.youtube_service.extract_videos(
-                    playlist.get("url", ""),
-                    limit=load_dialog.selected_limit
-                )
-
-                self.log_panel.write(
-                    f"{len(videos)} Videos aus Playlist gefunden: {playlist_title}"
-                )
-
+                self.log_panel.write(f"Lade Playlist: {playlist_title} → Plex-Name: {display_name} | Staffel {season}")
+                videos = self.youtube_service.extract_videos(playlist_url, limit=load_dialog.selected_limit)
+                self.log_panel.write(f"{len(videos)} Videos aus Playlist gefunden: {playlist_title}")
                 playlist["video_count"] = len(videos)
 
                 if self.repository is not None:
@@ -154,18 +141,16 @@ class PlaylistManager:
                     video["playlist_original"] = playlist_title
                     video["playlist_id"] = playlist.get("id", "")
                     video["playlist_season"] = season
+                    all_videos.append(video)
 
-                all_videos.extend(videos)
-
-            self.update_playlist_video_counts(channel, selected_playlists)
+            self.update_playlist_video_counts(channel, clean_selected)
             self.controller.save()
-
             all_videos = self.archive_service.mark_videos(channel, all_videos)
             self.open_video_selection(channel, all_videos)
-
         except Exception as error:
             self.log_panel.write(f"Fehler bei Manager-Playlists: {error}")
             self.update_status("Fehler bei Manager-Playlists")
+
     def update_playlist_video_counts(self, channel, selected_playlists):
         counts_by_id = {
             playlist.get("id", ""): int(playlist.get("video_count", 0) or 0)

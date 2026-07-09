@@ -280,14 +280,12 @@ class VideoSelectionDialog(QDialog):
                 continue
 
             visible_count += 1
-
             playlist = self.get_text(row, 2)
             if playlist:
                 playlist_names.add(playlist)
 
             status = self.get_text(row, 4)
-
-            if "Mitglieder" in status or "🔒" in status:
+            if "Mitglieder" in status:
                 members_count += 1
             elif status == "Neu":
                 new_count += 1
@@ -299,13 +297,13 @@ class VideoSelectionDialog(QDialog):
                 selected_count += 1
 
         playlist_text = f"{len(playlist_names)} Playlists | " if playlist_names else ""
-
         self.status_label.setText(
             f"{selected_count} ausgewählt | "
             f"{new_count} neu | "
             f"{loaded_count} bereits geladen | "
-            f"🔴 🔒 {members_count} Mitglieder | "
+            f"{members_count} Mitglieder | "
             f"{playlist_text}"
             f"{visible_count} sichtbar | "
             f"{len(self.videos)} insgesamt"
         )
+

@@ -1,5 +1,6 @@
 import json
 import platform
+import re
 import shutil
 import sqlite3
 import subprocess
@@ -736,36 +737,93 @@ class MainWindow(QMainWindow):
         self.statistics_manager.refresh_dashboard()
 
         if not result.get("ok", False) and int(result.get("failed", 0) or 0) > 0:
-            self.log_panel.write("Wizard: Sync hatte Fehler. Download-Auswahl wird trotzdem aus neuen bekannten Videos vorbereitet.")
+            self.log_panel.write("Wizard: Sync hatte Fehler. Download-Auswahl wird trotzdem live vorbereitet.")
 
-        if self.repository is None:
-            self.log_panel.write("Wizard: Keine Datenbank für neue Videos verfügbar.")
-            return
-
-        rows = self.repository.get_new_videos_for_channel(channel.name)
         videos = []
-        for row in rows:
-            if int(row.get("is_members_only", 0) or 0):
-                continue
-            video_id = row.get("video_id", "")
-            videos.append({
-                "id": video_id,
-                "url": row.get("url") or (f"https://www.youtube.com/watch?v={video_id}" if video_id else ""),
-                "title": row.get("title", "Ohne Titel"),
-                "playlist": row.get("playlists", ""),
-                "playlist_original": row.get("playlists", ""),
-                "status": "Neu",
-                "checked": True,
-            })
+
+        # Teil 9: Die direkte Auswahl nach dem Assistenten nutzt bewusst
+        # denselben Live-Weg wie der normale Video-Button. Sonst landen je nach
+        # yt-dlp/SQLite-Zwischenstand wieder Platzhalter wie "Kanalvideo" oder
+        # "Ohne Titel" in der Auswahl.
+        try:
+            if self.preview_manager.has_active_playlist_settings(channel):
+                self.log_panel.write("Wizard: Lade aktive Playlists live für die Videoauswahl.")
+                videos = self.preview_manager.load_active_playlist_videos(channel, limit=None)
+            else:
+                video_url = self.preview_manager.to_videos_url(channel.url)
+                self.log_panel.write(f"Wizard: Lade Kanalvideos live: {video_url}")
+                videos = self.youtube_service.preview_channel(video_url, limit=None)
+                videos = self.preview_manager.add_default_playlist_info(channel, videos)
+
+            videos = self.archive_service.mark_videos(channel, videos)
+            videos = self._filter_bad_wizard_video_rows(videos)
+        except Exception as error:
+            self.log_panel.write(f"Wizard: Live-Videoliste fehlgeschlagen: {error}")
+            videos = []
+
+        if not videos and self.repository is not None:
+            self.log_panel.write("Wizard: Fallback auf Datenbank-Videos.")
+            rows = self.repository.get_new_videos_for_channel(channel.name)
+            for row in rows:
+                if int(row.get("is_members_only", 0) or 0):
+                    continue
+                video_id = str(row.get("video_id", "") or "").strip()
+                url = row.get("url") or (f"https://www.youtube.com/watch?v={video_id}" if video_id else "")
+                videos.append({
+                    "id": video_id,
+                    "video_id": video_id,
+                    "url": url,
+                    "title": row.get("title", "Ohne Titel"),
+                    "playlist": row.get("playlists", "") or getattr(channel, "name", "Kanalvideos"),
+                    "playlist_original": row.get("playlists", "") or getattr(channel, "name", "Kanalvideos"),
+                    "status": "Neu",
+                    "checked": True,
+                })
+            videos = self._filter_bad_wizard_video_rows(videos)
 
         if not videos:
-            self.log_panel.write("Wizard: Keine neuen downloadbaren Videos gefunden.")
-            self.update_status("Keine neuen Videos")
+            self.log_panel.write("Wizard: Keine downloadbaren Videos gefunden.")
+            self.update_status("Keine Videos")
             self.open_library()
             return
 
-        self.log_panel.write(f"Wizard: {len(videos)} neue Video(s) für Download-Auswahl gefunden.")
+        self.log_panel.write(f"Wizard: {len(videos)} Video(s) für Download-Auswahl geladen.")
         self.open_video_selection(channel, videos)
+
+    def _filter_bad_wizard_video_rows(self, videos):
+        """Entfernt YouTube-/Playlist-Platzhalter aus jeder Videoauswahl."""
+        cleaned = []
+        bad_titles = {
+            "", "ohne titel", "untitled", "none", "null", "nan",
+            "kanalvideo", "channel video", "playlist", "playlists", "videos", "uploads",
+            "deleted video", "private video", "[deleted video]", "[private video]",
+        }
+        seen = set()
+        for video in videos or []:
+            video_id = str(video.get("video_id") or video.get("id") or "").strip()
+            title = str(video.get("title") or "").strip()
+            url = str(video.get("url") or video.get("webpage_url") or "").strip()
+
+            is_watch_url = ("watch?v=" in url) or ("youtu.be/" in url) or ("/shorts/" in url)
+            if not video_id and not is_watch_url:
+                continue
+            if video_id and not re.fullmatch(r"[A-Za-z0-9_-]{11}", video_id) and not is_watch_url:
+                continue
+            if title.lower() in bad_titles:
+                continue
+
+            key = video_id or url
+            if key and key in seen:
+                continue
+            if key:
+                seen.add(key)
+
+            if not video.get("id") and video_id:
+                video["id"] = video_id
+            if not video.get("video_id") and video_id:
+                video["video_id"] = video_id
+            cleaned.append(video)
+        return cleaned
 
     def sync_and_auto_download_new_for_channel(self, channel):
         if channel is None:
@@ -828,8 +886,21 @@ class MainWindow(QMainWindow):
             self.update_status("Keine Videos gefunden")
             return
 
-        videos = self._apply_library_status_to_videos(videos)
+        # Teil 9 Fix 3: derselbe Schutz jetzt auch für den normalen Video-Button,
+        # nicht nur für die direkte Wizard-Auswahl.
+        if hasattr(self, "_filter_bad_wizard_video_rows"):
+            before = len(videos)
+            videos = self._filter_bad_wizard_video_rows(videos)
+            removed = before - len(videos)
+            if removed:
+                self.log_panel.write(f"{removed} ungültige YouTube-Platzhalter ausgeblendet.")
 
+        if not videos:
+            self.log_panel.write("Keine echten Videos nach dem Platzhalter-Filter gefunden.")
+            self.update_status("Keine Videos gefunden")
+            return
+
+        videos = self._apply_library_status_to_videos(videos)
         dialog = VideoSelectionDialog(videos, self)
 
         if not dialog.exec():

@@ -141,29 +141,101 @@ class PreviewManager:
         )
 
     def load_active_playlist_videos(self, channel, limit=None) -> list[dict]:
+        from concurrent.futures import ThreadPoolExecutor, as_completed
+
         active_settings = [
-            setting
-            for setting in (getattr(channel, "playlist_settings", []) or [])
+            setting for setting in (getattr(channel, "playlist_settings", []) or [])
             if setting.get("enabled", True) and setting.get("url")
         ]
 
         all_videos = []
         seen_ids = set()
+        valid_settings = []
+        jobs = []
+        skipped_bad = 0
 
         for index, setting in enumerate(active_settings, start=1):
-            playlist_title = setting.get("playlist_name", "Ohne Titel")
+            playlist_title = setting.get("playlist_name") or setting.get("title") or "Ohne Titel"
             display_name = setting.get("display_name") or playlist_title
             season = int(setting.get("season", index) or index)
             playlist_url = setting.get("url", "")
 
-            self.log_panel.write(
-                f"Lade aktive Playlist {index}/{len(active_settings)}: "
-                f"{playlist_title} → {display_name} | Staffel {season}"
-            )
-            self.update_status(f"Playlist {index}/{len(active_settings)} wird geladen")
+            if hasattr(self.youtube_service, "normalize_playlist_url"):
+                fixed_url = self.youtube_service.normalize_playlist_url(playlist_url or setting.get("playlist_id", ""))
+                if not fixed_url:
+                    skipped_bad += 1
+                    self.log_panel.write(f"Ungültige Playlist übersprungen: {playlist_title} ({playlist_url})")
+                    continue
+                playlist_url = fixed_url
+                setting["url"] = fixed_url
+                if hasattr(self.youtube_service, "_playlist_id_from_value"):
+                    setting["playlist_id"] = self.youtube_service._playlist_id_from_value(fixed_url)
 
-            videos = self.youtube_service.extract_videos(playlist_url, limit=limit)
-            setting["video_count"] = len(videos)
+            setting["playlist_name"] = playlist_title
+            setting["title"] = playlist_title
+            valid_settings.append(setting)
+            jobs.append({
+                "index": len(valid_settings),
+                "setting": setting,
+                "playlist_title": playlist_title,
+                "display_name": display_name,
+                "season": season,
+                "url": playlist_url,
+                "kind": "playlist",
+            })
+
+        # Zusätzlich normale Kanalvideos laden. Das bleibt richtig so: Playlists + Kanalvideos.
+        if channel.url:
+            jobs.append({
+                "index": len(valid_settings) + 1,
+                "setting": {},
+                "playlist_title": "Kanalvideos",
+                "display_name": "Kanalvideos",
+                "season": 1,
+                "url": self.youtube_service.to_videos_url(channel.url) if hasattr(self.youtube_service, "to_videos_url") else channel.url,
+                "kind": "channel",
+            })
+
+        if skipped_bad:
+            self.log_panel.write(f"{skipped_bad} ungültige gespeicherte Playlist(s) entfernt/ignoriert.")
+            try:
+                channel.playlist_settings = valid_settings
+            except Exception:
+                pass
+
+        if not jobs:
+            return []
+
+        self.log_panel.write(
+            f"Lade {len(valid_settings)} Playlist(s) + Kanalvideos schneller im Hintergrund ..."
+        )
+        self.update_status("Videos werden geladen")
+
+        results = []
+        max_workers = min(5, max(1, len(jobs)))
+        with ThreadPoolExecutor(max_workers=max_workers) as executor:
+            future_map = {
+                executor.submit(self.youtube_service.extract_videos, job["url"], limit): job
+                for job in jobs
+            }
+            for future in as_completed(future_map):
+                job = future_map[future]
+                try:
+                    videos = future.result() or []
+                except Exception as error:
+                    self.log_panel.write(f"{job['playlist_title']} konnte nicht geladen werden: {error}")
+                    videos = []
+                results.append((job["index"], job, videos))
+
+        for _, job, videos in sorted(results, key=lambda item: item[0]):
+            setting = job["setting"]
+            playlist_title = job["playlist_title"]
+            display_name = job["display_name"]
+            season = job["season"]
+            kind = job["kind"]
+
+            if setting is not None:
+                setting["video_count"] = len(videos)
 
             if self.repository is not None:
                 try:
@@ -172,65 +244,38 @@ class PreviewManager:
                     self.log_panel.write(f"SQLite-Videoablage fehlgeschlagen: {db_error}")
 
             added = 0
-            for video in videos:
-                video_id = video.get("id") or video.get("video_id") or ""
-                if video_id and video_id in seen_ids:
-                    continue
-
-                if video_id:
-                    seen_ids.add(video_id)
-
-                video["playlist"] = display_name
-                video["playlist_original"] = playlist_title
-                video["playlist_id"] = setting.get("playlist_id", "")
-                video["playlist_season"] = season
-                video["playlist_image"] = setting.get("image_path", "") or setting.get("playlist_image", "")
-                all_videos.append(video)
-                added += 1
-
-            self.log_panel.write(
-                f"{len(videos)} Videos gefunden, {added} neue Einträge übernommen."
-            )
-
-        # Zusätzlich normale Kanalvideos laden.
-        # Playlists behalten Vorrang: IDs, die schon in Playlists vorkommen, werden übersprungen.
-        try:
-            self.log_panel.write("Lade zusätzliche Kanalvideos außerhalb von Playlists ...")
-            channel_videos = self.youtube_service.get_channel_videos(channel.url, limit=limit)
-            added_channel = 0
             skipped_duplicates = 0
-
-            for video in channel_videos:
+            for video in videos:
                 video_id = video.get("id") or video.get("video_id") or ""
                 if video_id and video_id in seen_ids:
                     skipped_duplicates += 1
                     continue
-
                 if video_id:
                     seen_ids.add(video_id)
 
-                video["playlist"] = "📺 Kanalvideos"
-                video["playlist_original"] = "📺 Kanalvideos"
-                video["playlist_id"] = "channel_uploads"
-                video["playlist_season"] = 1
-                video["playlist_image"] = ""
+                if kind == "channel":
+                    video["playlist"] = "Kanalvideos"
+                    video["playlist_original"] = "Kanalvideos"
+                    video["playlist_id"] = "channel_uploads"
+                    video["playlist_season"] = 1
+                    video["playlist_image"] = ""
+                else:
+                    video["playlist"] = display_name
+                    video["playlist_original"] = playlist_title
+                    video["playlist_id"] = setting.get("playlist_id", "")
+                    video["playlist_season"] = season
+                    video["playlist_image"] = setting.get("image_path", "") or setting.get("playlist_image", "")
                 all_videos.append(video)
-                added_channel += 1
+                added += 1
 
-            if self.repository is not None and added_channel:
-                try:
-                    self.repository.save_discovered_videos(channel.name, "📺 Kanalvideos", [
-                        video for video in all_videos if video.get("playlist_id") == "channel_uploads"
-                    ])
-                except Exception as db_error:
-                    self.log_panel.write(f"SQLite-Ablage für Kanalvideos fehlgeschlagen: {db_error}")
-
-            self.log_panel.write(
-                f"📺 Kanalvideos: {len(channel_videos)} geprüft, "
-                f"{skipped_duplicates} schon in Playlists, {added_channel} übernommen."
-            )
-        except Exception as error:
-            self.log_panel.write(f"Kanalvideos konnten nicht geladen werden: {error}")
+            if kind == "channel":
+                self.log_panel.write(
+                    f"Kanalvideos: {len(videos)} geprüft, {skipped_duplicates} schon in Playlists, {added} übernommen."
+                )
+            else:
+                self.log_panel.write(
+                    f"Playlist geladen: {playlist_title} → {display_name}: {len(videos)} gefunden, {added} übernommen."
+                )
 
         self.controller.save()
         self.log_panel.write(
@@ -257,24 +302,17 @@ class PreviewManager:
         return videos
 
     def to_videos_url(self, channel_url: str) -> str:
-        url = (channel_url or "").strip()
+        # Nicht selbst basteln: YouTubeService normalisiert Handles, UC-IDs und Tabs.
+        if hasattr(self.youtube_service, "to_videos_url"):
+            return self.youtube_service.to_videos_url(channel_url)
 
+        url = (channel_url or "").strip()
         if not url:
             return ""
-
         if "/videos" in url:
             return url
-
-        if "/playlists" in url:
-            return url.replace("/playlists", "/videos")
-
-        if "/featured" in url:
-            return url.replace("/featured", "/videos")
-
-        if "/streams" in url:
-            return url.replace("/streams", "/videos")
-
-        if "/shorts" in url:
-            return url.replace("/shorts", "/videos")
-
+        for old in ("/playlists", "/featured", "/streams", "/shorts"):
+            if old in url:
+                return url.replace(old, "/videos")
         return url.rstrip("/") + "/videos"
+

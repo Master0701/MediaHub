@@ -238,14 +238,13 @@ class SetupWizard(QWizard):
         return folder
 
     def save_channel_image(self, channel_name: str, url_or_path: str, filename: str) -> str:
-        """Speichert Kanal-/Playlistbilder lokal als JPG.
-
-        Der Assistent nutzt dafür den zentralen ImageAssetManager. So haben
-        Assistent, Kanalmodell und Plex-Import dieselbe Bildquelle.
-        """
+        """Speichert Kanal-/Banner-/Playlistbilder lokal über ImageAssetManager."""
         source = str(url_or_path or "").strip()
         if not source:
             return ""
+
+        if not hasattr(self, "image_manager") or self.image_manager is None:
+            self.image_manager = ImageAssetManager(Path.cwd())
 
         channel_id = str(self.channel_info.get("id") or "").strip()
         filename = str(filename or "").strip()

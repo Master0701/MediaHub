@@ -46,9 +46,34 @@ class PlaylistTable(QTableWidget):
         for row, playlist in enumerate(playlists):
             self.insertRow(row)
 
-            title = playlist.get("title", "Ohne Titel")
-            display_name = playlist.get("display_name", title)
-            season = int(playlist.get("season", row + 1))
+            # Teil 9 Fix 5:
+            # Der Assistent bekommt nach sync_playlist_settings() keine "title"-Liste mehr,
+            # sondern Settings mit "playlist_name". Vorher wurde deshalb in der
+            # YouTube-Name-Spalte immer der Fallback "Ohne Titel" angezeigt,
+            # obwohl der richtige Name schon im Plex-Namen stand.
+            title = (
+                playlist.get("title")
+                or playlist.get("playlist_name")
+                or playlist.get("name")
+                or "Ohne Titel"
+            )
+            title = str(title or "Ohne Titel").strip() or "Ohne Titel"
+
+            display_name = (
+                playlist.get("display_name")
+                or playlist.get("plex_name")
+                or title
+            )
+            display_name = str(display_name or title).strip() or title
+
+            # Wichtig: Daten normalisieren, damit spätere Funktionen wieder überall
+            # denselben Titel finden und nicht erneut auf "Ohne Titel" fallen.
+            playlist = dict(playlist)
+            playlist["title"] = title
+            playlist["playlist_name"] = title
+            playlist["display_name"] = display_name
+
+            season = int(playlist.get("season", row + 1) or row + 1)
             enabled = bool(playlist.get("enabled", True))
 
             checkbox = QCheckBox()
@@ -92,17 +117,26 @@ class PlaylistTable(QTableWidget):
 
             season_box = self.cellWidget(row, self.COL_SEASON)
 
-            playlist_name = playlist.get("title", youtube_item.text())
+            playlist_name = (
+                playlist.get("title")
+                or playlist.get("playlist_name")
+                or youtube_item.text()
+                or "Ohne Titel"
+            )
+            playlist_name = str(playlist_name or "Ohne Titel").strip() or "Ohne Titel"
             display_name = display_item.text().strip() if display_item else playlist_name
+            display_name = display_name or playlist_name
 
             settings.append({
-                "playlist_id": playlist.get("id", ""),
+                "playlist_id": playlist.get("id", playlist.get("playlist_id", "")),
                 "playlist_name": playlist_name,
-                "display_name": display_name or playlist_name,
+                "title": playlist_name,
+                "display_name": display_name,
                 "season": int(season_box.value()) if season_box else row + 1,
                 "enabled": bool(checkbox.isChecked()) if checkbox else True,
                 "url": playlist.get("url", ""),
-                "thumbnail_url": playlist.get("thumbnail_url", ""),
+                "thumbnail_url": playlist.get("thumbnail_url", playlist.get("thumbnail", "")),
+                "thumbnail": playlist.get("thumbnail", playlist.get("thumbnail_url", "")),
                 "image_path": playlist.get("image_path", ""),
             })
 
@@ -128,11 +162,23 @@ class PlaylistTable(QTableWidget):
             display_item = self.item(row, self.COL_DISPLAY_NAME)
             season_box = self.cellWidget(row, self.COL_SEASON)
 
+            title = (
+                playlist.get("title")
+                or playlist.get("playlist_name")
+                or youtube_item.text()
+                or "Ohne Titel"
+            )
+            title = str(title or "Ohne Titel").strip() or "Ohne Titel"
+
             prepared = dict(playlist)
-            prepared["display_name"] = display_item.text().strip() if display_item else playlist.get("title", "Ohne Titel")
+            prepared["title"] = title
+            prepared["playlist_name"] = title
+            prepared["display_name"] = display_item.text().strip() if display_item else playlist.get("display_name", title)
+            prepared["display_name"] = prepared["display_name"] or title
             prepared["season"] = int(season_box.value()) if season_box else row + 1
             prepared["enabled"] = True
 
             selected.append(prepared)
 
         return selected
+
