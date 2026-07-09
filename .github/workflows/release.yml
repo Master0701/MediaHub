@@ -1,0 +1,74 @@
+name: MediaHub Release
+
+on:
+  push:
+    tags:
+      - "v*"
+
+permissions:
+  contents: write
+
+jobs:
+  release:
+    name: Build and publish MediaHub release
+    runs-on: windows-latest
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v6
+
+      - name: Set up Python
+        uses: actions/setup-python@v6
+        with:
+          python-version: "3.13"
+          cache: "pip"
+
+      - name: Install Python dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt
+          pip install pyinstaller pillow reportlab python-docx markdown
+
+      - name: Install Inno Setup
+        run: |
+          choco install innosetup --yes
+
+      - name: Build release packages
+        run: |
+          python build_release.py
+
+      - name: Rename release files
+        shell: pwsh
+        run: |
+          $version = "${{ github.ref_name }}"
+
+          Rename-Item "release/MediaHub_Portable.zip" "MediaHub_${version}_Portable.zip"
+
+          if (Test-Path "release/MediaHub_Setup.zip") {
+            Rename-Item "release/MediaHub_Setup.zip" "MediaHub_${version}_Setup.zip"
+          }
+
+          Rename-Item "release/MediaHub_Handbuecher.zip" "MediaHub_${version}_Handbuecher.zip"
+
+      - name: Upload release artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: MediaHub-Release-${{ github.ref_name }}
+          path: |
+            release/MediaHub_${{ github.ref_name }}_Portable.zip
+            release/MediaHub_${{ github.ref_name }}_Setup.zip
+            release/MediaHub_${{ github.ref_name }}_Handbuecher.zip
+          if-no-files-found: warn
+
+      - name: Create GitHub Release
+        uses: softprops/action-gh-release@v3
+        with:
+          name: MediaHub ${{ github.ref_name }}
+          tag_name: ${{ github.ref_name }}
+          draft: false
+          prerelease: ${{ contains(github.ref_name, 'test') || contains(github.ref_name, 'beta') || contains(github.ref_name, 'alpha') }}
+          generate_release_notes: true
+          files: |
+            release/MediaHub_${{ github.ref_name }}_Portable.zip
+            release/MediaHub_${{ github.ref_name }}_Setup.zip
+            release/MediaHub_${{ github.ref_name }}_Handbuecher.zip
