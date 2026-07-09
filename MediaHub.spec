@@ -1,11 +1,24 @@
 # -*- mode: python ; coding: utf-8 -*-
 
+from pathlib import Path
+
+ROOT = Path.cwd()
+
+MAIN_FILE = ROOT / "main.py"
+ASSETS_DIR = ROOT / "assets"
+ICON_FILE = ROOT / "assets" / "icons" / "mediahub.ico"
+VERSION_FILE = ROOT / "version_info.txt"
+
+datas = []
+
+if ASSETS_DIR.exists():
+    datas.append((str(ASSETS_DIR), "assets"))
 
 a = Analysis(
-    ['D:\\eigenes program\\MediaHub\\main.py'],
-    pathex=[],
+    [str(MAIN_FILE)],
+    pathex=[str(ROOT)],
     binaries=[],
-    datas=[('D:\\eigenes program\\MediaHub\\assets', 'assets')],
+    datas=datas,
     hiddenimports=[],
     hookspath=[],
     hooksconfig={},
@@ -14,6 +27,7 @@ a = Analysis(
     noarchive=False,
     optimize=0,
 )
+
 pyz = PYZ(a.pure)
 
 exe = EXE(
@@ -22,7 +36,7 @@ exe = EXE(
     a.binaries,
     a.datas,
     [],
-    name='MediaHub',
+    name="MediaHub",
     debug=False,
     bootloader_ignore_signals=False,
     strip=False,
@@ -35,6 +49,6 @@ exe = EXE(
     target_arch=None,
     codesign_identity=None,
     entitlements_file=None,
-    version='D:\\eigenes program\\MediaHub\\version_info.txt',
-    icon=['D:\\eigenes program\\MediaHub\\assets\\icons\\mediahub.ico'],
+    version=str(VERSION_FILE) if VERSION_FILE.exists() else None,
+    icon=[str(ICON_FILE)] if ICON_FILE.exists() else None,
 )
