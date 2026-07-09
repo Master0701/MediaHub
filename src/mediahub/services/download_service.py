@@ -703,7 +703,10 @@ class DownloadService:
             if destination.exists():
                 continue
 
-            if self.copy_or_convert_image_to_jpg(source, destination, "poster"):
+            # Playlist-/Staffelposter bewusst immer neu schreiben: alte falsche
+            # Poster mit eingebranntem schwarzem Rand sollen beim nächsten Import
+            # ersetzt werden.
+            if self.copy_or_convert_image_to_jpg(source, destination, "playlist_poster"):
                 created.append(destination.name)
 
         if created and log_callback:
@@ -892,12 +895,92 @@ class DownloadService:
 
             with Image.open(source) as image:
                 image = image.convert("RGB")
-                output = self.fit_image_for_plex(image, target_size)
+                if kind in {"playlist", "playlist_poster", "season", "season_poster"}:
+                    output = self.fit_playlist_poster_full_width(image, target_size)
+                else:
+                    output = self.fit_image_for_plex(image, target_size)
                 output.save(destination, "JPEG", quality=94, optimize=True)
 
             return destination.exists()
         except Exception:
             return False
+
+    def crop_dark_border(self, image, threshold: int = 18):
+        """Schneidet eingebrannte schwarze Außenränder ab.
+
+        Das ist wichtig, falls durch einen alten Fix bereits ein falsches
+        SeasonXX.jpg/Posterbild mit riesigem schwarzem Rand als Quelle in
+        assets/channels oder im Zielordner gelandet ist.
+        """
+        if Image is None:
+            return image
+
+        try:
+            gray = image.convert("L")
+            mask = gray.point(lambda value: 255 if value > threshold else 0)
+            bbox = mask.getbbox()
+            if not bbox:
+                return image
+
+            left, top, right, bottom = bbox
+            width, height = image.size
+
+            # Nur wirklich große Außenränder entfernen. Kleine dunkle Bereiche
+            # im eigentlichen Thumbnail bleiben erhalten.
+            if left <= 3 and top <= 3 and right >= width - 3 and bottom >= height - 3:
+                return image
+
+            cropped_w = right - left
+            cropped_h = bottom - top
+            # Auch sehr breite YouTube-Thumbnails können auf einem 1000x1500
+            # Poster nur etwa 260-560 px hoch sein. Deshalb darf die
+            # Mindesthöhe hier nicht zu groß sein.
+            if cropped_w < width * 0.05 or cropped_h < height * 0.05:
+                return image
+
+            return image.crop(bbox)
+        except Exception:
+            return image
+
+    def fit_playlist_poster_full_width(self, image, target_size: tuple[int, int] = (1000, 1500)):
+        """Erzeugt Playlist-/Staffelposter ohne Mini-Bild in der Mitte.
+
+        Ziel:
+        - Plex-Posterfläche 1000x1500
+        - Thumbnail so groß wie möglich
+        - bei normalen YouTube-16:9-Bildern volle Breite
+        - keine Verzerrung
+        - kein links/rechts Abschneiden
+        - kein unscharfer Hintergrund und kein zweites Miniaturbild
+        """
+        if Image is None:
+            return image
+
+        target_w, target_h = target_size
+        image = self.crop_dark_border(image)
+        source_w, source_h = image.size
+
+        if source_w <= 0 or source_h <= 0:
+            return Image.new("RGB", target_size, (0, 0, 0))
+
+        # Für YouTube-Playlistbilder: zuerst auf volle Breite skalieren.
+        scale = target_w / source_w
+        new_w = target_w
+        new_h = max(1, int(round(source_h * scale)))
+
+        # Falls ein ungewöhnlich hohes Bild dadurch über die Posterhöhe laufen
+        # würde, auf die Höhe einpassen, damit nichts abgeschnitten wird.
+        if new_h > target_h:
+            scale = target_h / source_h
+            new_w = max(1, int(round(source_w * scale)))
+            new_h = target_h
+
+        resized = image.resize((new_w, new_h), Image.LANCZOS)
+        canvas = Image.new("RGB", target_size, (0, 0, 0))
+        x = (target_w - new_w) // 2
+        y = (target_h - new_h) // 2
+        canvas.paste(resized, (x, y))
+        return canvas
 
     def fit_image_for_plex(self, image, target_size: tuple[int, int]):
         """Erzeugt ein Plex-taugliches Bild ohne harten Beschnitt."""
