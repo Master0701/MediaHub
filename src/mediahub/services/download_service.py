@@ -1007,53 +1007,131 @@ class DownloadService:
 
 
     def create_tvshow_nfo(self, channel, series_dir: Path):
+        """Schreibt/aktualisiert tvshow.nfo für die Plex-Serie.
+
+        Serie = YouTube-Kanal. Deshalb kommen hier Kanalname, Kanalbeschreibung,
+        Kanal-URL und bekannte Zusatzinfos hinein. Bestehende tvshow.nfo wird
+        bewusst überschrieben, damit nach dem erneuten Import nicht weiter eine
+        alte leere NFO stehen bleibt.
+        """
         nfo_path = series_dir / "tvshow.nfo"
 
-        if nfo_path.exists():
-            return
+        def first_text(*values):
+            for value in values:
+                text_value = str(value or "").strip()
+                if text_value:
+                    return text_value
+            return ""
 
-        tvshow = ET.Element("tvshow")
+        def add(parent, tag, value):
+            value = str(value or "").strip()
+            if not value:
+                return None
+            node = ET.SubElement(parent, tag)
+            node.text = value
+            return node
 
-        channel_url = (
-            getattr(channel, "original_channel_url", "")
-            or getattr(channel, "channel_url", "")
-            or getattr(channel, "source_url", "")
-            or getattr(channel, "url", "")
+        def add_uniqueid(parent, value, id_type="youtube", default=False):
+            value = str(value or "").strip()
+            if not value:
+                return None
+            node = ET.SubElement(parent, "uniqueid")
+            node.set("type", id_type)
+            if default:
+                node.set("default", "true")
+            node.text = value
+            return node
+
+        channel_name = first_text(
+            getattr(channel, "name", ""),
+            getattr(channel, "youtube_name", ""),
+            getattr(channel, "title", ""),
+            "YouTube-Kanal",
+        )
+        youtube_name = first_text(
+            getattr(channel, "youtube_name", ""),
+            getattr(channel, "youtube_title", ""),
+            getattr(channel, "channel_title", ""),
+            channel_name,
+        )
+        channel_url = first_text(
+            getattr(channel, "original_channel_url", ""),
+            getattr(channel, "channel_url", ""),
+            getattr(channel, "source_url", ""),
+            getattr(channel, "url", ""),
+        )
+        channel_id = first_text(
+            getattr(channel, "channel_id", ""),
+            getattr(channel, "youtube_channel_id", ""),
+            getattr(channel, "uploader_id", ""),
+        )
+        description = first_text(
+            getattr(channel, "description", ""),
+            getattr(channel, "channel_description", ""),
+            getattr(channel, "about", ""),
+            getattr(channel, "plot", ""),
+        )
+        if not description:
+            description = f"YouTube-Kanal: {youtube_name}"
+            if channel_url:
+                description += f"\n\nQuelle: {channel_url}"
+
+        subscriber_count = first_text(
+            getattr(channel, "subscriber_count", ""),
+            getattr(channel, "subscribers", ""),
+        )
+        video_count = first_text(
+            getattr(channel, "video_count", ""),
+            getattr(channel, "videos_count", ""),
+        )
+        playlist_name = first_text(getattr(channel, "playlist_name", ""))
+        playlist_url = first_text(
+            getattr(channel, "playlist_original", ""),
+            getattr(channel, "playlist_url", ""),
         )
 
-        description = (
-            getattr(channel, "description", "")
-            or getattr(channel, "channel_description", "")
-            or ""
-        ).strip()
-
-        if not description:
-            description = f"YouTube-Kanal: {channel_url}" if channel_url else "YouTube-Kanal"
-
-        ET.SubElement(tvshow, "title").text = channel.name
-        ET.SubElement(tvshow, "originaltitle").text = channel.name
-        ET.SubElement(tvshow, "sorttitle").text = channel.name
-        ET.SubElement(tvshow, "plot").text = description
-        ET.SubElement(tvshow, "outline").text = description[:250]
-        ET.SubElement(tvshow, "studio").text = "YouTube"
-        ET.SubElement(tvshow, "genre").text = "YouTube"
-        ET.SubElement(tvshow, "tag").text = "YouTube"
-        ET.SubElement(tvshow, "status").text = "Continuing"
-        ET.SubElement(tvshow, "thumb").text = "poster.jpg"
-
-        if (series_dir / "fanart.jpg").exists():
-            ET.SubElement(tvshow, "fanart").text = "fanart.jpg"
-
+        details = []
         if channel_url:
-            uniqueid = ET.SubElement(tvshow, "uniqueid")
-            uniqueid.set("type", "youtube")
-            uniqueid.set("default", "true")
-            uniqueid.text = channel_url
-            ET.SubElement(tvshow, "homepage").text = channel_url
+            details.append(f"YouTube-Kanal: {channel_url}")
+        if channel_id:
+            details.append(f"Kanal-ID: {channel_id}")
+        if subscriber_count:
+            details.append(f"Abonnenten: {subscriber_count}")
+        if video_count:
+            details.append(f"Videos: {video_count}")
+        if playlist_name:
+            details.append(f"Aktuelle Playlist/Staffel: {playlist_name}")
+        if playlist_url:
+            details.append(f"Playlist-Link: {playlist_url}")
+
+        full_plot = description
+        if details:
+            full_plot = description.rstrip() + "\n\n" + "\n".join(details)
+
+        tvshow = ET.Element("tvshow")
+        add(tvshow, "title", channel_name)
+        add(tvshow, "originaltitle", youtube_name)
+        add(tvshow, "sorttitle", channel_name)
+        add(tvshow, "showtitle", channel_name)
+        add(tvshow, "plot", full_plot)
+        add(tvshow, "outline", description[:250])
+        add(tvshow, "tagline", f"YouTube-Kanal: {youtube_name}")
+        add(tvshow, "studio", youtube_name)
+        add(tvshow, "genre", "YouTube")
+        add(tvshow, "tag", "YouTube")
+        add(tvshow, "tag", youtube_name)
+        add(tvshow, "status", "Continuing")
+        add(tvshow, "premiered", first_text(getattr(channel, "created_at", ""), getattr(channel, "channel_created", "")))
+        add(tvshow, "thumb", "poster.jpg")
+        if (series_dir / "fanart.jpg").exists():
+            add(tvshow, "fanart", "fanart.jpg")
+        if channel_url:
+            add(tvshow, "homepage", channel_url)
+            add_uniqueid(tvshow, channel_url, "youtube", default=True)
+        if channel_id:
+            add_uniqueid(tvshow, channel_id, "youtube-channel-id")
 
         self.write_xml(nfo_path, tvshow)
-
-
     def create_season_nfo(self, season_dir: Path, channel, season: int, playlist_name: str = ""):
         """Schreibt season.nfo in den Staffel-/Playlistordner."""
         nfo_path = season_dir / "season.nfo"
