@@ -59,5 +59,5 @@ def open_release_assistant_with_gate(parent, base_dir: Path | str, app_version: 
         QMessageBox.warning(parent, "Release-Assistent", "Einmal-Passwort falsch oder bereits verbraucht.")
         return
 
-    assistant = ReleaseAssistantDialog(base_path, app_version, parent)
+    assistant = ReleaseAssistantDialog(parent)
     assistant.exec()

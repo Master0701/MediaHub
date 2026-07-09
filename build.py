@@ -6,10 +6,42 @@ import sys
 from pathlib import Path
 
 
+# Windows/Terminal UTF-8 erzwingen, damit Emoji-Ausgaben beim Build nicht abstuerzen.
+def _force_utf8_console():
+    import os
+    import sys
+    os.environ.setdefault("PYTHONIOENCODING", "utf-8")
+    os.environ.setdefault("PYTHONUTF8", "1")
+    for stream_name in ("stdout", "stderr"):
+        stream = getattr(sys, stream_name, None)
+        if stream is not None and hasattr(stream, "reconfigure"):
+            try:
+                stream.reconfigure(encoding="utf-8", errors="replace")
+            except Exception:
+                pass
+
+
+_force_utf8_console()
 APP_NAME = "MediaHub"
 APP_VERSION = "1.0.0"
 
+def _build_env():
+    import os
+    env = os.environ.copy()
+    env["PYTHONIOENCODING"] = "utf-8"
+    env["PYTHONUTF8"] = "1"
+    return env
+
+
 ROOT = Path(__file__).resolve().parent
+
+
+def _utf8_env():
+    import os
+    env = os.environ.copy()
+    env["PYTHONIOENCODING"] = "utf-8"
+    env["PYTHONUTF8"] = "1"
+    return env
 
 DIST_DIR = ROOT / "dist"
 BUILD_DIR = ROOT / "build"
@@ -84,7 +116,7 @@ def build_docs():
     if not script.exists():
         raise FileNotFoundError(f"build_docs.py fehlt: {script}")
 
-    subprocess.run([sys.executable, str(script)], check=True)
+    subprocess.run([sys.executable, str(script)], check=True, env=_utf8_env())
 
 
 def build_exe():
@@ -112,7 +144,7 @@ def build_exe():
 
     cmd.append(str(MAIN_FILE))
 
-    subprocess.run(cmd, check=True)
+    subprocess.run(cmd, check=True, env=_utf8_env())
 
     if not EXE_FILE.exists():
         raise FileNotFoundError(f"EXE wurde nicht erstellt: {EXE_FILE}")
@@ -137,7 +169,7 @@ def build_installer():
         print("Bitte Inno Setup 6 installieren.")
         return False
 
-    subprocess.run([str(compiler), str(INSTALLER_SCRIPT)], check=True)
+    subprocess.run([str(compiler), str(INSTALLER_SCRIPT)], check=True, env=_build_env())
 
     if not SETUP_FILE.exists():
         raise FileNotFoundError(f"Installer wurde nicht erstellt: {SETUP_FILE}")

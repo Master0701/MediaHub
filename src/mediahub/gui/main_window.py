@@ -201,6 +201,10 @@ class MainWindow(QMainWindow):
         extras_menu = menu.addMenu("Extras")
         extras_menu.addAction("Release-Assistent", self.open_release_assistant)
 
+        extras_menu = menu.addMenu("Extras")
+        extras_menu.addAction("Release-Assistent", lambda: open_release_assistant_with_gate(self, self.base_dir, APP_VERSION))
+        extras_menu.addSeparator()
+
         help_menu = menu.addMenu("Hilfe")
         action_help_center = QAction("Hilfe-Center", self)
         action_help_center.setShortcut(QKeySequence("F1"))

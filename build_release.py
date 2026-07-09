@@ -5,7 +5,31 @@ import zipfile
 from pathlib import Path
 
 
+# Windows/Terminal UTF-8 erzwingen, damit Emoji-Ausgaben beim Build nicht abstuerzen.
+def _force_utf8_console():
+    import os
+    import sys
+    os.environ.setdefault("PYTHONIOENCODING", "utf-8")
+    os.environ.setdefault("PYTHONUTF8", "1")
+    for stream_name in ("stdout", "stderr"):
+        stream = getattr(sys, stream_name, None)
+        if stream is not None and hasattr(stream, "reconfigure"):
+            try:
+                stream.reconfigure(encoding="utf-8", errors="replace")
+            except Exception:
+                pass
+
+
+_force_utf8_console()
 ROOT = Path(__file__).resolve().parent
+
+
+def _utf8_env():
+    import os
+    env = os.environ.copy()
+    env["PYTHONIOENCODING"] = "utf-8"
+    env["PYTHONUTF8"] = "1"
+    return env
 
 APP_NAME = "MediaHub"
 
@@ -23,7 +47,7 @@ INSTALLER_SCRIPT = ROOT / "installer" / "installer.iss"
 
 def run(command, cwd=ROOT):
     print(" ".join(str(part) for part in command))
-    subprocess.run(command, cwd=cwd, check=True)
+    subprocess.run(command, cwd=cwd, check=True, env=_utf8_env())
 
 
 def clean():

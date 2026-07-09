@@ -206,3 +206,38 @@ tools/build_password_tool_exe.py
 dist/
 build/
 *.spec
+# MediaHub Release-Assistent / lokales Gate
+
+# MediaHub Teil-8 Patch-/Backup-Dateien
+_patch/
+patch_files/
+part8_3_files/
+part8_4_files/
+part8_5_files/
+apply_part8_*.py
+*.part8_*_backup
+*.bak_part8_*
+# Lokale Sicherheitsdatei fuer Release-Assistent
+# Lokale Build-Ausgaben
+# Python
+__pycache__/
+*.pyc
+
+# Entwicklungs-Backups
+*.bak
+*.backup
+*.part*
+*_backup
+
+# Patch-Dateien
+_patch/
+patch_files/
+part*_files/
+apply_part*.py
+
+# Build
+build/
+dist/
+
+# Lokale Konfiguration
+config/.mh_gate.json
