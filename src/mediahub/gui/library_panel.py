@@ -1,4 +1,6 @@
 from pathlib import Path
+import os
+import sys
 
 from PySide6.QtCore import Qt, QUrl, QTimer, QObject, QThread, Signal, Slot
 from PySide6.QtGui import QDesktopServices, QColor, QBrush
@@ -206,9 +208,18 @@ class LibraryPanel(QWidget):
             self.counter.setText("Keine Datenbank")
             return
 
+        # Während eine Abfrage läuft, nur einen weiteren Lauf vormerken.
+        # So entstehen beim Seitenwechsel keine zwei oder drei parallelen SQLite-Abfragen.
+        if self._search_thread is not None and self._search_thread.isRunning():
+            self._refresh_pending = True
+            self.show_loading_message("Aktualisierung vorgemerkt ...")
+            return
+
         query = self.search_input.text().strip()
         status_filter = self.filter_combo.currentData() or "all"
         limit = 250 if not query and status_filter == "all" else 300
+
+        self._refresh_pending = False
 
         # Alte Suchergebnisse werden ignoriert, wenn inzwischen eine neue Suche gestartet wurde.
         self._search_request_id += 1
@@ -235,6 +246,10 @@ class LibraryPanel(QWidget):
         if self._search_thread is thread:
             self._search_thread = None
             self._search_worker = None
+
+            if self._refresh_pending:
+                self._refresh_pending = False
+                self.search_timer.start(0)
 
     def _handle_search_finished(self, request_id, rows, error_message):
         if request_id != self._search_request_id:
@@ -492,17 +507,85 @@ class LibraryPanel(QWidget):
         return ""
 
     def _local_file_path(self, row: dict):
+        """Findet die lokale Mediendatei auch nach dem Verschieben ins Zielverzeichnis."""
         filename = str(row.get("downloaded_filename") or "").strip()
-        if not filename:
-            return None
+        video_id = str(row.get("video_id") or "").strip()
 
-        path = Path(filename)
-        if not path.is_absolute():
-            path = Path.cwd() / path
+        raw_path = Path(filename) if filename else None
+        candidates = []
 
-        if path.exists():
-            return path
+        if raw_path is not None:
+            candidates.append(raw_path)
+            if not raw_path.is_absolute():
+                candidates.append(Path.cwd() / raw_path)
+
+        search_roots = []
+        for key in ("channel_work_folder", "channel_target_folder"):
+            value = str(row.get(key) or "").strip()
+            if not value:
+                continue
+            root = Path(value).expanduser()
+            if not root.is_absolute():
+                root = Path.cwd() / root
+            if root not in search_roots:
+                search_roots.append(root)
+
+        if raw_path is not None:
+            for root in search_roots:
+                candidates.append(root / raw_path)
+                candidates.append(root / raw_path.name)
+
+        for candidate in candidates:
+            try:
+                if candidate.is_file():
+                    return candidate.resolve()
+            except OSError:
+                continue
+
+        media_extensions = {
+            ".mp4", ".mkv", ".webm", ".avi", ".mov", ".m4v",
+            ".mp3", ".m4a", ".flac", ".opus", ".wav", ".aac",
+        }
+
+        for root in search_roots:
+            try:
+                if not root.is_dir():
+                    continue
+
+                # Zuerst exakt nach dem gespeicherten Dateinamen suchen.
+                if raw_path is not None and raw_path.name:
+                    for match in root.rglob(raw_path.name):
+                        if match.is_file():
+                            return match.resolve()
+
+                # Fallback: YouTube-Video-ID im Dateinamen suchen.
+                if video_id:
+                    for match in root.rglob(f"*{video_id}*"):
+                        if match.is_file() and match.suffix.lower() in media_extensions:
+                            return match.resolve()
+            except (OSError, PermissionError):
+                continue
+
         return None
 
     def _open_local_path(self, path: Path):
-        QDesktopServices.openUrl(QUrl.fromLocalFile(str(path)))
+        path = Path(path)
+
+        try:
+            if sys.platform.startswith("win"):
+                os.startfile(str(path))
+                return
+
+            opened = QDesktopServices.openUrl(QUrl.fromLocalFile(str(path)))
+            if not opened:
+                QMessageBox.warning(
+                    self,
+                    "Bibliothek",
+                    f"Der lokale Pfad konnte nicht geöffnet werden:\n{path}",
+                )
+        except Exception as error:
+            QMessageBox.warning(
+                self,
+                "Bibliothek",
+                f"Der lokale Pfad konnte nicht geöffnet werden:\n{path}\n\n{error}",
+            )

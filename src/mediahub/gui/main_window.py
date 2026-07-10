@@ -354,7 +354,13 @@ class MainWindow(QMainWindow):
         if "Dashboard" in title and self.statistics_manager is not None:
             self.statistics_manager.refresh_dashboard()
         elif "Bibliothek" in title and self.library_manager is not None:
-            self.library_manager.refresh()
+            # Die Bibliothek nicht bei jedem Seitenwechsel erneut komplett laden.
+            # Ein Neuladen erfolgt weiterhin:
+            # - beim ersten Öffnen,
+            # - nach Downloads/Sync,
+            # - über F5 oder den Aktualisieren-Button.
+            if not getattr(self.library_panel, "_loaded_once", False):
+                self.library_manager.refresh()
         elif "Jobs" in title and self.job_queue_manager is not None:
             self.job_queue_manager.refresh()
         elif "Scheduler" in title and self.scheduler_manager is not None:
@@ -600,7 +606,12 @@ class MainWindow(QMainWindow):
     def refresh_current_page(self):
         """F5 aktualisiert die aktuell sichtbare Seite."""
         title = self.nav_list.currentItem().text() if self.nav_list.currentItem() else ""
-        self._navigation_changed(self.nav_list.currentRow())
+
+        if "Bibliothek" in title and self.library_manager is not None:
+            self.library_manager.refresh()
+        else:
+            self._navigation_changed(self.nav_list.currentRow())
+
         if "Dashboard" in title and self.assistant_manager is not None:
             self.assistant_manager.refresh()
         self.update_status(f"Aktualisiert: {title.replace('🏠 ', '').replace('📺 ', '').replace('📚 ', '')}")

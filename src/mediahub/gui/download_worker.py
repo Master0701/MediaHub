@@ -131,6 +131,38 @@ class DownloadWorker(QObject):
                     self.queue_progress.emit(int((index / total) * 100))
                     continue
 
+                video_id = item.get("video_id", "") or getattr(channel, "video_id", "")
+                repository = item.get("repository") or getattr(self.download_service, "repository", None)
+                downloaded_files = list(
+                    getattr(self.download_service, "last_downloaded_files", []) or []
+                )
+                downloaded_file = downloaded_files[0] if downloaded_files else ""
+
+                if repository is not None and video_id and downloaded_file:
+                    try:
+                        path = __import__("pathlib").Path(downloaded_file)
+                        repository.mark_video_downloaded(
+                            video_id=video_id,
+                            filename=str(path),
+                            has_nfo=path.with_suffix(".nfo").exists(),
+                            has_thumbnail=any(
+                                path.with_suffix(ext).exists()
+                                for ext in (".jpg", ".jpeg", ".png", ".webp")
+                            ),
+                            title=title,
+                            url=getattr(channel, "url", ""),
+                            channel_name=getattr(channel, "name", ""),
+                        )
+                        self.log.emit(f"✅ In Datenbank als geladen gespeichert: {path}")
+                    except Exception as error:
+                        self.log.emit(f"Downloadstatus konnte nicht gespeichert werden: {error}")
+                elif not video_id:
+                    self.log.emit("Downloadstatus konnte nicht gespeichert werden: Video-ID fehlt.")
+                elif repository is None:
+                    self.log.emit("Downloadstatus konnte nicht gespeichert werden: Repository fehlt.")
+                else:
+                    self.log.emit("Downloadstatus konnte nicht gespeichert werden: Dateipfad fehlt.")
+
                 self._safe_progress(100)
                 self.item_finished.emit(item_index, title)
                 self.queue_progress.emit(int((index / total) * 100))

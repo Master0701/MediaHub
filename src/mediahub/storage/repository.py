@@ -19,6 +19,25 @@ class MediaRepository:
 
     def initialize(self) -> None:
         self.migration_manager.migrate()
+        self._ensure_performance_indexes()
+
+    def _ensure_performance_indexes(self) -> None:
+        """Legt fehlende SQLite-Indizes ohne Datenverlust an."""
+        statements = (
+            "CREATE INDEX IF NOT EXISTS idx_videos_status_flags ON videos(is_new, is_downloaded, is_members_only)",
+            "CREATE INDEX IF NOT EXISTS idx_videos_channel_id ON videos(channel_id)",
+            "CREATE INDEX IF NOT EXISTS idx_videos_upload_date ON videos(upload_date DESC)",
+            "CREATE INDEX IF NOT EXISTS idx_videos_first_seen ON videos(first_seen_at DESC)",
+            "CREATE INDEX IF NOT EXISTS idx_video_playlists_video ON video_playlists(video_db_id)",
+            "CREATE INDEX IF NOT EXISTS idx_video_playlists_playlist ON video_playlists(playlist_id)",
+            "CREATE INDEX IF NOT EXISTS idx_playlists_channel_id ON playlists(channel_id)",
+            "CREATE INDEX IF NOT EXISTS idx_channels_name ON channels(name)",
+        )
+        with self.database.connect() as connection:
+            for statement in statements:
+                connection.execute(statement)
+            connection.execute("PRAGMA optimize")
+            connection.commit()
 
     def get_schema_version(self) -> str:
         row = self.database.fetch_one(
@@ -408,24 +427,80 @@ class MediaRepository:
         filename: str = "",
         has_nfo: bool = False,
         has_thumbnail: bool = False,
-    ) -> None:
-        """Markiert ein Video für spätere Historie als heruntergeladen."""
+        title: str = "",
+        url: str = "",
+        channel_name: str = "",
+    ) -> bool:
+        """Markiert ein Video als geladen und legt fehlende Datensätze sicher an."""
+        video_id = str(video_id or "").strip()
         if not video_id:
-            return
-        self.database.execute(
-            """
-            UPDATE videos
-            SET is_downloaded = 1,
-                is_new = 0,
-                status = 'downloaded',
-                download_date = CURRENT_TIMESTAMP,
-                downloaded_filename = COALESCE(NULLIF(?, ''), downloaded_filename),
-                has_nfo = CASE WHEN ? = 1 THEN 1 ELSE has_nfo END,
-                has_thumbnail = CASE WHEN ? = 1 THEN 1 ELSE has_thumbnail END
-            WHERE video_id = ?
-            """,
-            (filename, 1 if has_nfo else 0, 1 if has_thumbnail else 0, video_id),
-        )
+            return False
+
+        filename = str(filename or "").strip()
+        title = str(title or "Ohne Titel").strip() or "Ohne Titel"
+        url = str(url or f"https://www.youtube.com/watch?v={video_id}").strip()
+
+        with self.database.connect() as connection:
+            cursor = connection.execute(
+                """
+                UPDATE videos
+                SET is_downloaded = 1,
+                    is_new = 0,
+                    status = 'downloaded',
+                    download_date = CURRENT_TIMESTAMP,
+                    downloaded_filename = COALESCE(NULLIF(?, ''), downloaded_filename),
+                    has_nfo = CASE WHEN ? = 1 THEN 1 ELSE has_nfo END,
+                    has_thumbnail = CASE WHEN ? = 1 THEN 1 ELSE has_thumbnail END,
+                    last_seen_at = CURRENT_TIMESTAMP,
+                    last_sync_at = CURRENT_TIMESTAMP
+                WHERE video_id = ?
+                """,
+                (
+                    filename,
+                    1 if has_nfo else 0,
+                    1 if has_thumbnail else 0,
+                    video_id,
+                ),
+            )
+
+            if cursor.rowcount == 0:
+                channel_id = None
+                if channel_name:
+                    channel_row = connection.execute(
+                        "SELECT id FROM channels WHERE name = ? ORDER BY id LIMIT 1",
+                        (channel_name,),
+                    ).fetchone()
+                    if channel_row:
+                        channel_id = channel_row["id"]
+
+                connection.execute(
+                    """
+                    INSERT INTO videos (
+                        channel_id, video_id, title, url, description,
+                        thumbnail_url, upload_date, duration, view_count,
+                        status, is_new, is_downloaded, is_members_only,
+                        downloaded_filename, download_date,
+                        has_nfo, has_thumbnail,
+                        first_seen_at, last_seen_at, last_sync_at
+                    )
+                    VALUES (?, ?, ?, ?, '', '', '', 0, 0,
+                            'downloaded', 0, 1, 0,
+                            ?, CURRENT_TIMESTAMP, ?, ?,
+                            CURRENT_TIMESTAMP, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)
+                    """,
+                    (
+                        channel_id,
+                        video_id,
+                        title,
+                        url,
+                        filename,
+                        1 if has_nfo else 0,
+                        1 if has_thumbnail else 0,
+                    ),
+                )
+
+            connection.commit()
+        return True
 
 
     def mark_video_members_only(
@@ -509,11 +584,7 @@ class MediaRepository:
         return [dict(row) for row in rows]
 
     def search_library_videos(self, query: str = "", status_filter: str = "all", limit: int = 500) -> list[dict]:
-        """Liefert Videos für die Bibliotheksansicht.
-
-        Gesucht wird in Titel, Kanalname, Playlistname und Video-ID.
-        Die Methode ist bewusst read-only und verändert keine Download-Logik.
-        """
+        """Liefert die Bibliothek mit frühzeitiger Begrenzung für schnelle Anzeige."""
         conditions = []
         params = []
 
@@ -521,7 +592,18 @@ class MediaRepository:
         if query:
             like = f"%{query}%"
             conditions.append(
-                "(v.title LIKE ? OR v.video_id LIKE ? OR c.name LIKE ? OR p.title LIKE ? OR p.display_name LIKE ?)"
+                """(
+                    v.title LIKE ?
+                    OR v.video_id LIKE ?
+                    OR c.name LIKE ?
+                    OR EXISTS (
+                        SELECT 1
+                        FROM video_playlists search_vp
+                        JOIN playlists search_p ON search_p.id = search_vp.playlist_id
+                        WHERE search_vp.video_db_id = v.id
+                          AND (search_p.title LIKE ? OR search_p.display_name LIKE ?)
+                    )
+                )"""
             )
             params.extend([like, like, like, like, like])
 
@@ -532,45 +614,64 @@ class MediaRepository:
         elif status_filter == "members":
             conditions.append("v.is_members_only = 1")
 
-        where_sql = ""
-        if conditions:
-            where_sql = "WHERE " + " AND ".join(conditions)
+        where_sql = "WHERE " + " AND ".join(conditions) if conditions else ""
+        safe_limit = max(1, min(int(limit or 500), 1000))
 
         sql = f"""
+            WITH selected_videos AS (
+                SELECT
+                    v.id,
+                    v.video_id,
+                    v.title,
+                    v.url,
+                    v.upload_date,
+                    v.duration,
+                    v.description,
+                    v.thumbnail_url,
+                    v.status,
+                    v.is_new,
+                    v.is_downloaded,
+                    v.is_members_only,
+                    v.downloaded_filename,
+                    v.first_seen_at,
+                    v.last_seen_at,
+                    v.last_sync_at,
+                    v.has_nfo,
+                    v.has_thumbnail,
+                    v.channel_id,
+                    c.name AS channel_name,
+                    c.work_folder AS channel_work_folder,
+                    c.target_folder AS channel_target_folder
+                FROM videos v
+                LEFT JOIN channels c ON c.id = v.channel_id
+                {where_sql}
+                ORDER BY
+                    v.is_new DESC,
+                    COALESCE(NULLIF(v.upload_date, ''), v.first_seen_at) DESC,
+                    v.first_seen_at DESC
+                LIMIT ?
+            )
             SELECT
-                v.id,
-                v.video_id,
-                v.title,
-                v.url,
-                v.upload_date,
-                v.duration,
-                v.description,
-                v.thumbnail_url,
-                v.status,
-                v.is_new,
-                v.is_downloaded,
-                v.is_members_only,
-                v.downloaded_filename,
-                v.first_seen_at,
-                v.last_seen_at,
-                v.last_sync_at,
-                v.has_nfo,
-                v.has_thumbnail,
-                c.name AS channel_name,
-                GROUP_CONCAT(DISTINCT COALESCE(NULLIF(p.display_name, ''), p.title)) AS playlists
-            FROM videos v
-            LEFT JOIN channels c ON c.id = v.channel_id
-            LEFT JOIN video_playlists vp ON vp.video_db_id = v.id
-            LEFT JOIN playlists p ON p.id = vp.playlist_id
-            {where_sql}
-            GROUP BY v.id
+                sv.*,
+                (
+                    SELECT GROUP_CONCAT(name, ', ')
+                    FROM (
+                        SELECT DISTINCT
+                            COALESCE(NULLIF(p.display_name, ''), p.title) AS name
+                        FROM video_playlists vp
+                        JOIN playlists p ON p.id = vp.playlist_id
+                        WHERE vp.video_db_id = sv.id
+                          AND COALESCE(NULLIF(p.display_name, ''), p.title) <> ''
+                        ORDER BY p.sort_order, p.id
+                    )
+                ) AS playlists
+            FROM selected_videos sv
             ORDER BY
-                v.is_new DESC,
-                COALESCE(NULLIF(v.upload_date, ''), v.first_seen_at) DESC,
-                v.first_seen_at DESC
-            LIMIT ?
+                sv.is_new DESC,
+                COALESCE(NULLIF(sv.upload_date, ''), sv.first_seen_at) DESC,
+                sv.first_seen_at DESC
         """
-        params.append(int(limit or 500))
+        params.append(safe_limit)
         rows = self.database.fetch_all(sql, tuple(params))
         return [dict(row) for row in rows]
 

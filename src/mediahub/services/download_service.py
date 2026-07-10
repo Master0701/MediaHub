@@ -38,6 +38,7 @@ class DownloadService:
         self.tool_service = tool_service
         self.last_download_status = ""
         self.last_download_error = ""
+        self.last_downloaded_files = []
         self.image_manager = ImageAssetManager(Path.cwd())
 
     @staticmethod
@@ -118,6 +119,7 @@ class DownloadService:
     def download_latest_video(self, channel, log_callback=None, progress_callback=None, cancel_callback=None):
         self.last_download_status = ""
         self.last_download_error = ""
+        self.last_downloaded_files = []
 
         base_work_dir = Path(channel.work_folder or "downloads/work") / channel.name
         base_work_dir.mkdir(parents=True, exist_ok=True)
@@ -254,11 +256,32 @@ class DownloadService:
 
         try:
             if channel.target_folder:
-                self.import_to_plex(channel, work_dir, log_callback, since=download_started_at - 2)
+                final_files = self.import_to_plex(
+                    channel,
+                    work_dir,
+                    log_callback,
+                    since=download_started_at - 2,
+                )
             else:
                 if log_callback:
                     log_callback("Kein Plex-Ziel gesetzt. Dateien bleiben direkt im Arbeitsordner.")
-                self.create_work_nfo_files(channel, work_dir, log_callback, since=download_started_at - 2)
+                self.create_work_nfo_files(
+                    channel,
+                    work_dir,
+                    log_callback,
+                    since=download_started_at - 2,
+                )
+                final_files = self.find_media_files(work_dir)
+                final_files = [
+                    path for path in final_files
+                    if path.stat().st_mtime >= download_started_at - 2
+                ]
+
+            self.last_downloaded_files = [
+                str(Path(path).resolve())
+                for path in (final_files or [])
+                if Path(path).is_file()
+            ]
         except Exception as error:
             if log_callback:
                 log_callback(f"Import-/NFO-Fehler: {type(error).__name__}: {error}")
@@ -268,7 +291,14 @@ class DownloadService:
         if channel.target_folder:
             self.remove_empty_temp_dir(work_dir)
 
+        if not self.last_downloaded_files:
+            if log_callback:
+                log_callback("Download abgeschlossen, aber die endgültige Mediendatei wurde nicht gefunden.")
+            self.last_download_status = "file_not_found"
+            return False
+
         if log_callback:
+            log_callback(f"Lokale Datei: {self.last_downloaded_files[0]}")
             log_callback("Download abgeschlossen.")
 
         return True
@@ -361,7 +391,7 @@ class DownloadService:
         if not media_files:
             if log_callback:
                 log_callback("Keine Mediendatei zum Importieren gefunden.")
-            return
+            return []
 
         series_dir = Path(channel.target_folder) / channel.name
         series_dir.mkdir(parents=True, exist_ok=True)
@@ -386,6 +416,7 @@ class DownloadService:
 
         # Staffelbild: Playlist-Thumbnail. Wird einmal pro Import vorbereitet.
         playlist_image = self.find_or_download_playlist_image(channel, work_dir, log_callback)
+        imported_files = []
 
         for media_file in media_files:
             info = self.find_info_for_media(media_file)
@@ -434,6 +465,7 @@ class DownloadService:
 
             new_media = target_dir / f"{base_name}{media_file.suffix.lower()}"
             self.move_file(media_file, new_media)
+            imported_files.append(new_media)
 
             if getattr(channel, "create_nfo", True):
                 self.create_episode_nfo(
@@ -452,6 +484,8 @@ class DownloadService:
 
         if channel.clean_work_folder:
             self.clean_work_dir(work_dir, log_callback)
+
+        return imported_files
 
     def create_work_nfo_files(self, channel, work_dir: Path, log_callback=None, since: float | None = None):
         if not getattr(channel, "create_nfo", True):
