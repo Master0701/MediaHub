@@ -109,6 +109,7 @@ var
   DeleteLogs: Boolean;
   DeletePlugins: Boolean;
   DeleteTools: Boolean;
+  DeleteChannelAssets: Boolean;
 
 function FileExistsEx(Path: String): Boolean;
 begin
@@ -325,6 +326,7 @@ begin
   DeleteLogs := False;
   DeletePlugins := False;
   DeleteTools := False;
+  DeleteChannelAssets := False;
 
   DoAsk :=
     MsgBox(
@@ -357,6 +359,12 @@ begin
 
     if DirExists(ExpandConstant('{app}\tools')) then
       DeleteTools := AskDelete('Tools');
+
+    if DirExists(ExpandConstant('{app}\assets\channels')) then
+      DeleteChannelAssets := AskDelete(
+        'Kanalbilder, Banner und Playlistbilder' + #13#10 + #13#10 +
+        'Diese Bilder wurden von MediaHub heruntergeladen und können später erneut geladen werden.'
+      );
   end;
 
   Result := True;
@@ -406,6 +414,7 @@ begin
     DeleteDirIfChosen(DeleteLogs, 'logs');
     DeleteDirIfChosen(DeletePlugins, 'plugins');
     DeleteDirIfChosen(DeleteTools, 'tools');
+    DeleteDirIfChosen(DeleteChannelAssets, 'assets\channels');
 
     if DirExists(ExpandConstant('{app}\cache')) then
       DelTree(ExpandConstant('{app}\cache'), True, True, True);
