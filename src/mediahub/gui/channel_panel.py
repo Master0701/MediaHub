@@ -1,6 +1,6 @@
 from PySide6.QtWidgets import (
     QWidget, QVBoxLayout, QHBoxLayout, QListWidget, QPushButton,
-    QLabel, QGroupBox, QMessageBox, QSizePolicy, QSplitter
+    QLabel, QGroupBox, QMessageBox, QSizePolicy, QSplitter, QScrollArea
 )
 from PySide6.QtCore import Qt
 
@@ -80,7 +80,21 @@ class ChannelPanel(QWidget):
         self.info = QLabel("")
         self.info.setWordWrap(True)
         self.info.setMinimumWidth(0)
-        self.info.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Expanding)
+        self.info.setTextInteractionFlags(Qt.TextInteractionFlag.TextSelectableByMouse)
+        self.info.setStyleSheet(
+            "QLabel {"
+            "font-size: 11px;"
+            "padding: 2px 4px;"
+            "}"
+        )
+
+        self.info_scroll = QScrollArea()
+        self.info_scroll.setWidgetResizable(True)
+        self.info_scroll.setFrameShape(QScrollArea.Shape.NoFrame)
+        self.info_scroll.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAsNeeded)
+        self.info_scroll.setVerticalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAsNeeded)
+        self.info_scroll.setMinimumHeight(180)
+        self.info_scroll.setWidget(self.info)
 
         self.status_info = QLabel("Noch keine Datenbank-Statistik vorhanden.")
         self.status_info.setWordWrap(True)
@@ -98,7 +112,7 @@ class ChannelPanel(QWidget):
         self.btn_download = QPushButton("Download")
 
         center_layout.addWidget(self.title)
-        center_layout.addWidget(self.info)
+        center_layout.addWidget(self.info_scroll, 1)
         center_layout.addWidget(self.status_info)
         center_layout.addStretch()
         center_layout.addWidget(self.btn_preview)
@@ -108,8 +122,9 @@ class ChannelPanel(QWidget):
         self.inner_splitter.setChildrenCollapsible(False)
         self.inner_splitter.addWidget(left_box)
         self.inner_splitter.addWidget(center_box)
-        self.inner_splitter.setSizes([360, 520])
-        self.inner_splitter.setStretchFactor(0, 1)
+        # Linke Kanalseite etwas breiter, rechte Detailseite etwas schmaler.
+        self.inner_splitter.setSizes([430, 450])
+        self.inner_splitter.setStretchFactor(0, 3)
         self.inner_splitter.setStretchFactor(1, 2)
 
         layout.addWidget(self.inner_splitter)
@@ -162,13 +177,14 @@ class ChannelPanel(QWidget):
 
         self.title.setText(channel.name)
         self.info.setText(
-            f"URL:\n{channel.url or 'nicht gesetzt'}\n\n"
-            f"Arbeitsordner:\n{channel.work_folder or 'nicht gesetzt'}\n\n"
-            f"Plex-Ziel:\n{channel.target_folder or 'nicht gesetzt'}\n\n"
-            f"Playlist-Ablage:\n{playlist_mode}\n"
-            f"Playlists:\n{active_count} aktiv / {playlist_count} gespeichert\n\n"
-            f"Poster:\n{channel.poster or 'automatisch'}\n\n"
-            f"Fanart:\n{channel.fanart or 'automatisch'}\n\n"
+            f"🌐 URL\n{channel.url or 'nicht gesetzt'}\n\n"
+            f"📁 Arbeitsordner\n{channel.work_folder or 'nicht gesetzt'}\n\n"
+            f"🎬 Plex-Ziel\n{channel.target_folder or 'nicht gesetzt'}\n\n"
+            f"📂 Playlist-Ablage\n{playlist_mode}\n\n"
+            f"📋 Playlists\n{active_count} aktiv / {playlist_count} gespeichert\n\n"
+            f"🖼 Poster\n{channel.poster or 'automatisch'}\n\n"
+            f"🌄 Fanart\n{channel.fanart or 'automatisch'}\n\n"
+            f"⚙️ Downloadprofil\n"
             f"Container: {channel.container}\n"
             f"Auflösung: {channel.resolution}\n"
             f"Audio: {channel.audio_format}"

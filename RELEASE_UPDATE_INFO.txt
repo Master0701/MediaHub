@@ -1,0 +1,19 @@
+MediaHub v1.0.1 Release-Update
+
+Diese ZIP direkt in den MediaHub-Hauptordner entpacken und vorhandene Dateien ersetzen.
+
+Enthalten:
+- CHANGELOG.md
+- README.md
+- version_info.txt
+- MediaHub.spec
+- main.py
+- build_docs.py
+- build_release.py
+- installer/installer.iss
+- src/mediahub/gui/main_window.py
+
+Wichtig:
+Die Namen MediaHub_Portable.zip, MediaHub_Setup.zip und MediaHub_Handbuecher.zip
+in build_release.py bleiben absichtlich unverändert. Der GitHub-Release-Workflow
+benennt sie anschließend mit dem Tag v1.0.1 um.

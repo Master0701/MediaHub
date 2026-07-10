@@ -1,3 +1,26 @@
+# Changelog
+
+## v1.0.1 – MediaHub Teil 10
+
+### Fehlerbehebungen
+
+- „Ordner öffnen“ in der Bibliothek repariert.
+- Bereits heruntergeladene Videos werden lokal statt erneut auf YouTube geöffnet.
+- Erfolgreiche Downloads werden zuverlässig in SQLite als geladen gespeichert.
+- Fehlende Video-Datensätze werden nach einem Download automatisch angelegt.
+- Der endgültige lokale Dateipfad wird auch nach dem Plex-Import gespeichert.
+- Videos im Standard-Arbeitsordner werden ebenfalls korrekt in der Datenbank erfasst.
+- Die Bibliothek wird beim Wechsel zwischen Dashboard und Bibliothek nicht mehr unnötig neu geladen.
+- Der Kanalbereich wurde verbreitert; das rechte Einstellungsfenster kann kompakter dargestellt werden.
+- Kanalinformationen besitzen jetzt einen vertikalen Scrollbereich und bleiben vollständig erreichbar.
+
+### Verbesserungen
+
+- Bibliotheksabfragen und Playlist-Zuordnungen wurden durch zusätzliche SQLite-Indizes vorbereitet.
+- Lange Pfade in den Kanaleinstellungen können sauber umbrechen.
+- Datenbank- und Bibliotheksaktualisierung nach abgeschlossenen Downloads verbessert.
+- Kanal- und Datenbankstatus bleiben auch bei kleineren Fensterhöhen vollständig bedienbar.
+
 ## v1.0.0-rc10.5
 
 - Release Builder ergänzt.

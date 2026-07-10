@@ -1,3 +1,19 @@
+# MediaHub v1.0.1
+
+MediaHub ist ein lokales PySide6-Programm zum Verwalten von YouTube-Kanälen, Playlists, Video-Downloads und Plex-Importen.
+
+## Neu in v1.0.1
+
+- Lokale Videos und ihre Ordner lassen sich wieder direkt aus der Bibliothek öffnen.
+- Download-Ergebnisse werden zuverlässig mit dem endgültigen Dateipfad in SQLite gespeichert.
+- Fehlende Videoeinträge werden nach erfolgreichen Downloads automatisch ergänzt.
+- Die Bibliothek wird beim Seitenwechsel nicht mehr unnötig neu geladen.
+- Der Kanalbereich ist übersichtlicher, breiter und besitzt einen Scrollbereich für lange Informationen.
+
+Die vollständige Liste steht in [`CHANGELOG.md`](CHANGELOG.md).
+
+---
+
 # MediaHub v1.0.0-rc10.4
 
 RC10.4 ergänzt den Release Manager im Recovery Center. Damit kann ein sauberes Release-Verzeichnis mit Standardkonfiguration und Release-Bericht vorbereitet werden, ohne die aktuellen privaten Arbeitsdaten zu löschen.

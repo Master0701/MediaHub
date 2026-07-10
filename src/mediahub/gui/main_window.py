@@ -74,7 +74,7 @@ from src.mediahub.services.archive_service import ArchiveService
 from src.mediahub.storage.repository import MediaRepository
 
 
-APP_VERSION = "v1.0.0-rc10.5"
+APP_VERSION = "v1.0.1"
 
 
 class MainWindow(QMainWindow):
@@ -385,9 +385,10 @@ class MainWindow(QMainWindow):
         splitter.setHandleWidth(10)
         splitter.addWidget(self.channel_panel)
         splitter.addWidget(self.settings_panel)
-        splitter.setStretchFactor(0, 3)
-        splitter.setStretchFactor(1, 2)
-        splitter.setSizes([620, 420])
+        # Kanalbereich deutlich breiter, Einstellungen rechts kompakt.
+        splitter.setStretchFactor(0, 7)
+        splitter.setStretchFactor(1, 3)
+        splitter.setSizes([760, 300])
         return splitter
 
     def _build_statistics_page(self):
@@ -665,11 +666,11 @@ class MainWindow(QMainWindow):
             self,
             "Was ist neu?",
             f"MediaHub {APP_VERSION}\n\n"
-            "Neu in rc10.5:\n"
-            "• Release Builder ergänzt.\n"
-            "• Build-Skripte und PyInstaller-Spec vorbereitet.\n"
-            "• Release-ZIP kann aus dem Release Manager erzeugt werden.\n"
-            "• Abschlussbericht für den finalen Release-Schritt ergänzt.",
+            "Neu in v1.0.1:\n"
+            "• Lokale Videos und Ordner wieder direkt aus der Bibliothek öffnen.\n"
+            "• Downloads werden zuverlässig mit Dateipfad in SQLite gespeichert.\n"
+            "• Bibliothek lädt beim Seitenwechsel nicht mehr unnötig neu.\n"
+            "• Kanalbereich und Kanalinformationen übersichtlicher dargestellt.",
         )
         state["last_whats_new"] = APP_VERSION
         try:

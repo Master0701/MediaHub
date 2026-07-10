@@ -1,11 +1,14 @@
 # -*- mode: python ; coding: utf-8 -*-
 
+from pathlib import Path
+
+ROOT = Path(SPECPATH)
 
 a = Analysis(
-    ['D:\\eigenes program\\MediaHub\\main.py'],
-    pathex=[],
+    [str(ROOT / "main.py")],
+    pathex=[str(ROOT)],
     binaries=[],
-    datas=[('D:\\eigenes program\\MediaHub\\assets', 'assets')],
+    datas=[(str(ROOT / "assets"), "assets")],
     hiddenimports=[],
     hookspath=[],
     hooksconfig={},
@@ -22,7 +25,7 @@ exe = EXE(
     a.binaries,
     a.datas,
     [],
-    name='MediaHub',
+    name="MediaHub",
     debug=False,
     bootloader_ignore_signals=False,
     strip=False,
@@ -35,6 +38,6 @@ exe = EXE(
     target_arch=None,
     codesign_identity=None,
     entitlements_file=None,
-    version='D:\\eigenes program\\MediaHub\\version_info.txt',
-    icon=['D:\\eigenes program\\MediaHub\\assets\\icons\\mediahub.ico'],
+    version=str(ROOT / "version_info.txt"),
+    icon=[str(ROOT / "assets" / "icons" / "mediahub.ico")],
 )

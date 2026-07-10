@@ -23,7 +23,7 @@ def _force_utf8_console():
 
 _force_utf8_console()
 APP_NAME = "MediaHub"
-APP_VERSION = "1.0.0"
+APP_VERSION = "1.0.1"
 
 def _build_env():
     import os

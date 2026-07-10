@@ -4,7 +4,7 @@ from src.mediahub.docs.models import DocBook
 
 
 APP_NAME = "MediaHub"
-APP_VERSION = "1.0.0"
+APP_VERSION = "1.0.1"
 
 ROOT = Path(__file__).resolve().parents[3]
 

@@ -3,7 +3,7 @@ from pathlib import Path
 from PySide6.QtGui import QPixmap
 from PySide6.QtWidgets import (
     QWidget, QVBoxLayout, QLabel, QComboBox, QCheckBox,
-    QTabWidget
+    QTabWidget, QSizePolicy
 )
 
 from src.mediahub.services.profile_service import ProfileService
@@ -24,9 +24,23 @@ class SettingsPanel(QWidget):
         self.change_callback = None
         self._loading = False
 
+        # Das rechte Einstellungsfenster darf schmal werden, ohne den
+        # Kanalbereich wieder zusammenzudrücken.
+        self.setMinimumWidth(250)
+        self.setSizePolicy(
+            QSizePolicy.Policy.Ignored,
+            QSizePolicy.Policy.Expanding,
+        )
+
         outer_layout = QVBoxLayout(self)
+        outer_layout.setContentsMargins(6, 6, 6, 6)
 
         self.tabs = QTabWidget()
+        self.tabs.setMinimumWidth(0)
+        self.tabs.setSizePolicy(
+            QSizePolicy.Policy.Ignored,
+            QSizePolicy.Policy.Expanding,
+        )
         outer_layout.addWidget(self.tabs)
 
         self.tab_general = QWidget()
@@ -51,6 +65,19 @@ class SettingsPanel(QWidget):
         self.lbl_url = QLabel("URL: -")
         self.lbl_work = QLabel("Arbeitsordner: -")
         self.lbl_target = QLabel("Plex-Ziel: -")
+
+        for label in (
+            self.lbl_name,
+            self.lbl_url,
+            self.lbl_work,
+            self.lbl_target,
+        ):
+            label.setWordWrap(True)
+            label.setMinimumWidth(0)
+            label.setSizePolicy(
+                QSizePolicy.Policy.Ignored,
+                QSizePolicy.Policy.Preferred,
+            )
 
         layout.addWidget(self.lbl_name)
         layout.addWidget(self.lbl_url)
@@ -141,6 +168,10 @@ class SettingsPanel(QWidget):
 
         self.poster_path = QLabel("Poster: automatisch")
         self.fanart_path = QLabel("Fanart: automatisch")
+        self.poster_path.setWordWrap(True)
+        self.fanart_path.setWordWrap(True)
+        self.poster_path.setMinimumWidth(0)
+        self.fanart_path.setMinimumWidth(0)
 
         layout.addWidget(QLabel("Poster"))
         layout.addWidget(self.poster_preview)
