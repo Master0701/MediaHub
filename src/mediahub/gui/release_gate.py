@@ -45,9 +45,9 @@ def open_release_assistant_with_gate(parent, base_dir: Path | str, app_version: 
         QMessageBox.warning(
             parent,
             "Release-Assistent",
-            "Noch kein Passwort eingerichtet.\n\n"
-            "Bitte zuerst aus dem MediaHub-Ordner ausführen:\n"
-            "python tools/mediahub_password_tool.py --init",
+            "A.A.A.\n\n"
+            "Du hast das Zauberwort nicht gesagt.\n\n"
+            "A.A.A. NEIN!",
         )
         return
 
