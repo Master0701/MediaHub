@@ -1,4 +1,7 @@
 import re
+import json
+import urllib.request
+from html import unescape
 
 from yt_dlp import YoutubeDL
 
@@ -145,21 +148,248 @@ class YouTubeService:
         if hasattr(self, "normalize_channel_url"):
             real_url = self.normalize_channel_url(real_url)
 
-        description = (
-            info.get("description")
+        about_info = self.get_channel_about_info(real_url)
+
+        description = self._clean_channel_description(
+            about_info.get("description")
             or info.get("channel_description")
+            or info.get("uploader_description")
+            or info.get("about")
+            or info.get("description")
             or ""
         )
+
+        # Wenn yt-dlp nur eine Videobeschreibung geliefert hat, lieber keine
+        # falschen Werkzeug-/Videolinks in die Serien-NFO schreiben.
+        if self._looks_like_video_description(description):
+            description = self._clean_channel_description(about_info.get("description") or "")
+
+        banner_url = banner_url or about_info.get("banner", "")
 
         return {
             "id": channel_id,
             "name": title,
             "url": real_url,
             "description": description,
+            "channel_description": description,
+            "links": about_info.get("links", []),
+            "country": about_info.get("country", ""),
+            "subscriber_count": about_info.get("subscriber_count", ""),
+            "video_count": about_info.get("video_count", ""),
+            "view_count": about_info.get("view_count", ""),
+            "joined_date": about_info.get("joined_date", ""),
             "avatar": thumbnail_url,
             "banner": banner_url,
             "raw": info,
         }
+
+    def get_channel_about_info(self, channel_url: str) -> dict:
+        """Liest einfache Kanalinfos aus der YouTube-About-Seite.
+
+        Diese Daten sind optional. Wenn YouTube die Seite ändert oder blockiert,
+        bleibt MediaHub trotzdem funktionsfähig und verwendet nur yt-dlp-Daten.
+        """
+        result = {
+            "description": "",
+            "links": [],
+            "banner": "",
+            "country": "",
+            "subscriber_count": "",
+            "video_count": "",
+            "view_count": "",
+            "joined_date": "",
+        }
+        base = self.normalize_channel_url(channel_url)
+        if not base:
+            return result
+
+        about_url = base.rstrip("/") + "/about"
+        try:
+            request = urllib.request.Request(
+                about_url,
+                headers={
+                    "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36",
+                    "Accept-Language": "de-DE,de;q=0.9,en;q=0.8",
+                },
+            )
+            with urllib.request.urlopen(request, timeout=15) as response:
+                html = response.read().decode("utf-8", errors="replace")
+        except Exception:
+            return result
+
+        data = self._extract_yt_initial_data(html)
+        if data:
+            text_values = []
+            self._walk_json(data, text_values)
+
+            description = self._find_about_description(text_values)
+            if description:
+                result["description"] = description
+
+            links = self._find_about_links(data)
+            if links:
+                result["links"] = links
+
+            banner = self._find_about_banner(data)
+            if banner:
+                result["banner"] = banner
+
+            stats = self._find_about_stats(text_values)
+            result.update({key: value for key, value in stats.items() if value})
+
+        return result
+
+    def _extract_yt_initial_data(self, html: str):
+        marker = "ytInitialData = "
+        start = html.find(marker)
+        if start < 0:
+            marker = "window[\"ytInitialData\"] = "
+            start = html.find(marker)
+        if start < 0:
+            return None
+        start += len(marker)
+        end = html.find(";</script>", start)
+        if end < 0:
+            end = html.find(";", start)
+        if end < 0:
+            return None
+        text = html[start:end].strip()
+        try:
+            return json.loads(text)
+        except Exception:
+            return None
+
+    def _walk_json(self, node, text_values: list[str]):
+        if isinstance(node, dict):
+            for key, value in node.items():
+                if key in {"simpleText", "content"} and isinstance(value, str):
+                    cleaned = self._clean_channel_description(value)
+                    if cleaned:
+                        text_values.append(cleaned)
+                elif key == "runs" and isinstance(value, list):
+                    text = "".join(str(item.get("text", "")) for item in value if isinstance(item, dict))
+                    cleaned = self._clean_channel_description(text)
+                    if cleaned:
+                        text_values.append(cleaned)
+                else:
+                    self._walk_json(value, text_values)
+        elif isinstance(node, list):
+            for item in node:
+                self._walk_json(item, text_values)
+
+    def _find_about_description(self, text_values: list[str]) -> str:
+        bad_markers = (
+            "alle tools", "hier ein kleiner auszug", "mainboard tester", "alibaba",
+            "aliexpress", "amzn.to", "letzte videobeschreibung", "playlist-link",
+            "letztes importiertes video",
+        )
+        candidates = []
+        for text in text_values:
+            lowered = text.lower()
+            if len(text) < 40:
+                continue
+            if any(marker in lowered for marker in bad_markers):
+                continue
+            if "auf meinem kanal" in lowered or "kanal" in lowered or "videos" in lowered:
+                candidates.append(text)
+        if candidates:
+            candidates.sort(key=len, reverse=True)
+            return candidates[0]
+        return ""
+
+    def _find_about_links(self, data) -> list[dict]:
+        links = []
+        seen = set()
+
+        def walk(node):
+            if isinstance(node, dict):
+                url = ""
+                title = ""
+                if "urlEndpoint" in node and isinstance(node["urlEndpoint"], dict):
+                    url = str(node["urlEndpoint"].get("url") or "")
+                if "webCommandMetadata" in node and isinstance(node["webCommandMetadata"], dict):
+                    url = url or str(node["webCommandMetadata"].get("url") or "")
+                if "title" in node:
+                    title = self._json_text(node.get("title"))
+                if url.startswith("http") and url not in seen:
+                    seen.add(url)
+                    links.append({"title": title, "url": url})
+                for value in node.values():
+                    walk(value)
+            elif isinstance(node, list):
+                for item in node:
+                    walk(item)
+
+        walk(data)
+        return links[:20]
+
+    def _find_about_banner(self, data) -> str:
+        urls = []
+
+        def walk(node):
+            if isinstance(node, dict):
+                if "url" in node and isinstance(node.get("url"), str):
+                    url = node["url"]
+                    if "yt3.googleusercontent.com" in url and ("banner" in url.lower() or "fcrop" in url.lower()):
+                        urls.append(url)
+                for value in node.values():
+                    walk(value)
+            elif isinstance(node, list):
+                for item in node:
+                    walk(item)
+
+        walk(data)
+        return urls[-1] if urls else ""
+
+    def _find_about_stats(self, text_values: list[str]) -> dict:
+        result = {}
+        for text in text_values:
+            lower = text.lower()
+            if "abonnent" in lower and not result.get("subscriber_count"):
+                result["subscriber_count"] = text
+            elif "video" in lower and re.search(r"\d", text) and not result.get("video_count"):
+                result["video_count"] = text
+            elif "aufruf" in lower and not result.get("view_count"):
+                result["view_count"] = text
+            elif "beigetreten" in lower and not result.get("joined_date"):
+                result["joined_date"] = text
+            elif text.strip().lower() in {"deutschland", "germany", "österreich", "austria", "schweiz", "switzerland"}:
+                result["country"] = text.strip()
+        return result
+
+    def _json_text(self, value) -> str:
+        if isinstance(value, str):
+            return self._clean_channel_description(value)
+        if isinstance(value, dict):
+            if isinstance(value.get("simpleText"), str):
+                return self._clean_channel_description(value.get("simpleText"))
+            if isinstance(value.get("runs"), list):
+                return self._clean_channel_description("".join(str(item.get("text", "")) for item in value["runs"] if isinstance(item, dict)))
+        return ""
+
+    def _clean_channel_description(self, text: str) -> str:
+        text = unescape(str(text or ""))
+        text = text.replace("\\n", "\n")
+        text = re.sub(r"\r\n?", "\n", text)
+        text = re.sub(r"[ \t]+", " ", text)
+        text = re.sub(r"\n{3,}", "\n\n", text)
+        return text.strip()
+
+    def _looks_like_video_description(self, text: str) -> bool:
+        lowered = str(text or "").lower()
+        markers = (
+            "letzte videobeschreibung",
+            "letztes importiertes video",
+            "playlist-link",
+            "alle tools",
+            "mainboard tester",
+            "alibaba",
+            "aliexpress",
+            "amzn.to",
+            "youtu.be/",
+            "watch?v=",
+        )
+        return any(marker in lowered for marker in markers)
 
     def extract_videos(self, url: str, limit=None) -> list[dict]:
         if not url:

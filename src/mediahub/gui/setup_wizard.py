@@ -225,6 +225,36 @@ class SetupWizard(QWizard):
             playlist_folder_mode=self.folder_page.playlist_folder_mode.currentText(),
             playlist_settings=self.playlist_page.playlist_table.get_playlist_settings(),
         )
+
+        # Zusatzinfos aus der YouTube-Kanalerkennung speichern.
+        # Wichtig für tvshow.nfo: Hier darf später NICHT die letzte
+        # Videobeschreibung landen, sondern die echte Kanalbeschreibung.
+        channel.channel_id = str(
+            self.channel_info.get("id")
+            or self.channel_info.get("channel_id")
+            or self.channel_info.get("uploader_id")
+            or ""
+        ).strip()
+        channel.description = str(
+            self.channel_info.get("description")
+            or self.channel_info.get("channel_description")
+            or self.channel_info.get("about")
+            or ""
+        ).strip()
+        channel.youtube_name = str(
+            self.channel_info.get("name")
+            or self.channel_info.get("title")
+            or self.channel_info.get("channel")
+            or name
+            or ""
+        ).strip()
+        channel.channel_url = str(
+            self.channel_info.get("webpage_url")
+            or self.channel_info.get("channel_url")
+            or self.url_page.url_edit.text().strip()
+            or ""
+        ).strip()
+
         return channel
 
     def safe_filename(self, value: str) -> str:
