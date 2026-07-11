@@ -6,11 +6,13 @@
 - Interne MediaHub-API für die weitere Plugin-Entwicklung stabilisiert.
 - Kompatibilität mit dem aktuellen Stand von `MediaHub_Plugins` verbessert.
 
-## Hinweise
+## Verbessert
 
-- Nach diesem API-Fix sollte die MediaHub-Version als Patch-Version erhöht werden.
-- Plugin-Kompatibilitätsangaben wie `minimum_mediahub` müssen zur neuen MediaHub-Version passen.
+- GitHub-Actions vollständig auf Node-24-kompatible Versionen aktualisiert.
+- `actions/upload-artifact` von Version 4 auf Version 6 angehoben.
+- GitHub-Release-Seite übernimmt nun automatisch die echten Release-Notizen.
+- README wird bei zukünftigen Releases automatisch auf die neue Version und die aktuellen Änderungen gesetzt.
 
 ## Commit-Nachricht
 
-MediaHub API-Fix und Plugin-Kompatibilität verbessert
+MediaHub v1.0.5 – Release-Informationen und Node-24-Workflows aktualisiert

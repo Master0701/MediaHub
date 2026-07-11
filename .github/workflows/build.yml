@@ -8,6 +8,9 @@ on:
     branches:
       - main
 
+permissions:
+  contents: read
+
 jobs:
   build-check:
     name: Build MediaHub on Windows
@@ -30,19 +33,16 @@ jobs:
           pip install pyinstaller pillow reportlab python-docx markdown
 
       - name: Prepare version files
-        run: |
-          python mediahub_version.py
+        run: python mediahub_version.py
 
       - name: Build documentation
-        run: |
-          python build_docs.py
+        run: python build_docs.py
 
       - name: Build MediaHub EXE
-        run: |
-          python -m PyInstaller --clean --noconfirm MediaHub.spec
+        run: python -m PyInstaller --clean --noconfirm MediaHub.spec
 
       - name: Upload EXE artifact
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v6
         with:
           name: MediaHub-Build-Check
           path: |

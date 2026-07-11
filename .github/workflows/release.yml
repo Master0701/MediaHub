@@ -12,7 +12,7 @@ jobs:
   release:
     name: Build and publish MediaHub release
     runs-on: windows-latest
-    
+
     env:
       PYTHONUTF8: "1"
       PYTHONIOENCODING: "utf-8"
@@ -34,8 +34,7 @@ jobs:
           pip install pyinstaller pillow reportlab python-docx markdown
 
       - name: Install Inno Setup
-        run: |
-          choco install innosetup --yes
+        run: choco install innosetup --yes
 
       - name: Build release packages
         shell: pwsh
@@ -47,7 +46,7 @@ jobs:
           python build_release.py
 
       - name: Upload release artifacts
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v6
         with:
           name: MediaHub-Release-${{ github.ref_name }}
           path: |
@@ -55,7 +54,8 @@ jobs:
             release/MediaHub_${{ github.ref_name }}_Portable.zip
             release/MediaHub_${{ github.ref_name }}_Setup.zip
             release/MediaHub_${{ github.ref_name }}_Handbuecher.zip
-          if-no-files-found: warn
+            release/RELEASE_NOTES.md
+          if-no-files-found: error
 
       - name: Create GitHub Release
         uses: softprops/action-gh-release@v3
@@ -64,7 +64,9 @@ jobs:
           tag_name: ${{ github.ref_name }}
           draft: false
           prerelease: ${{ contains(github.ref_name, 'test') || contains(github.ref_name, 'beta') || contains(github.ref_name, 'alpha') }}
-          generate_release_notes: true
+          body_path: release/RELEASE_NOTES.md
+          generate_release_notes: false
+          fail_on_unmatched_files: true
           files: |
             release/MediaHub_Setup_${{ github.ref_name }}.exe
             release/MediaHub_${{ github.ref_name }}_Portable.zip
