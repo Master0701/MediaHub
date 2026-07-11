@@ -28,6 +28,8 @@ from PySide6.QtWidgets import (
     QVBoxLayout,
 )
 
+from src.mediahub.security.maintenance_gate import gate_exists, verify_password
+
 
 class ReleaseAssistantDialog(QDialog):
     """Developer dialog for MediaHub release tasks.
@@ -283,10 +285,48 @@ class ReleaseAssistantDialog(QDialog):
             self.append_log("Release-Veröffentlichung abgebrochen.")
             return
 
+        if not self._confirm_release_password(version):
+            return
+
         self.run_commands(
             [(f"MediaHub v{version} vollständig veröffentlichen", [sys.executable, str(script), version])],
             after_finish=self.refresh_status,
         )
+
+    def _confirm_release_password(self, version: str) -> bool:
+        """Verlangt unmittelbar vor der Veröffentlichung einen neuen Einmal-Code."""
+        if not gate_exists(self.root_dir):
+            QMessageBox.warning(
+                self,
+                "Release-Freigabe",
+                "A.A.A.\n\nDu hast das Zauberwort nicht gesagt.\n\nA.A.A. NEIN!",
+            )
+            self.append_log("Release abgebrochen: Passwortschutz ist nicht eingerichtet.")
+            return False
+
+        password, accepted = QInputDialog.getText(
+            self,
+            "Release endgültig freigeben",
+            f"MediaHub v{version} wird gleich zu GitHub übertragen.\n\n"
+            "Bitte dafür ein NEUES Einmal-Passwort eingeben:",
+            QLineEdit.EchoMode.Password,
+        )
+        if not accepted:
+            self.append_log("Release-Veröffentlichung bei der Passwortabfrage abgebrochen.")
+            return False
+
+        if not verify_password(self.root_dir, password):
+            QMessageBox.warning(
+                self,
+                "Release-Freigabe verweigert",
+                "Einmal-Passwort falsch oder bereits verbraucht.\n\n"
+                "Es wurden keine Build-, Git- oder GitHub-Schritte gestartet.",
+            )
+            self.append_log("Release abgebrochen: Einmal-Passwort falsch oder bereits verbraucht.")
+            return False
+
+        self.append_log(f"Release v{version} durch neues Einmal-Passwort freigegeben.")
+        return True
 
     def git_add(self):
         answer = QMessageBox.question(
