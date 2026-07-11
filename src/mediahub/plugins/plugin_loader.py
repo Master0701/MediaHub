@@ -1,3 +1,5 @@
+from __future__ import annotations
+
 import json
 import shutil
 import zipfile
@@ -14,12 +16,10 @@ class PluginLoader:
 
     def discover(self) -> list[PluginInfo]:
         plugins: list[PluginInfo] = []
-
         for manifest in sorted(self.plugins_dir.glob("*/plugin.json")):
             plugin = self.load_manifest(manifest)
             if plugin is not None:
                 plugins.append(plugin)
-
         return plugins
 
     def load_manifest(self, manifest: Path) -> PluginInfo | None:
@@ -29,9 +29,12 @@ class PluginLoader:
             return None
 
         plugin_id = str(data.get("id") or manifest.parent.name).strip()
-
         if not plugin_id:
             return None
+
+        permissions = data.get("permissions") or []
+        if not isinstance(permissions, list):
+            permissions = []
 
         return PluginInfo(
             plugin_id=plugin_id,
@@ -45,60 +48,67 @@ class PluginLoader:
             entry=str(data.get("entry") or ""),
             icon=str(data.get("icon") or ""),
             safe_mode=bool(data.get("safe_mode", True)),
+            class_name=str(data.get("class_name") or ""),
+            minimum_mediahub_version=str(data.get("minimum_mediahub_version") or ""),
+            permissions=[str(item) for item in permissions],
         )
+
+    def _safe_extract(self, archive: zipfile.ZipFile, target: Path) -> None:
+        target_resolved = target.resolve()
+        for member in archive.infolist():
+            destination = (target / member.filename).resolve()
+            if destination != target_resolved and target_resolved not in destination.parents:
+                raise ValueError(f"Unsicherer Pfad im Plugin-Paket: {member.filename}")
+        archive.extractall(target)
 
     def install_mhplugin(self, file_path: Path) -> tuple[bool, str]:
         file_path = Path(file_path)
-
         if not file_path.exists():
             return False, "Plugin-Datei wurde nicht gefunden."
-
         if file_path.suffix.lower() != ".mhplugin":
             return False, "Nur .mhplugin-Dateien werden unterstützt."
 
         temp_dir = self.plugins_dir / "_install_temp"
-
         if temp_dir.exists():
             shutil.rmtree(temp_dir)
-
         temp_dir.mkdir(parents=True, exist_ok=True)
 
         try:
             with zipfile.ZipFile(file_path, "r") as zip_file:
-                zip_file.extractall(temp_dir)
+                self._safe_extract(zip_file, temp_dir)
 
-            manifest_files = list(temp_dir.glob("*/plugin.json"))
-
+            manifest_files = list(temp_dir.glob("*/plugin.json")) or list(temp_dir.glob("plugin.json"))
             if not manifest_files:
-                manifest_files = list(temp_dir.glob("plugin.json"))
-
-            if not manifest_files:
-                shutil.rmtree(temp_dir)
                 return False, "Keine plugin.json im Plugin gefunden."
 
             manifest = manifest_files[0]
             plugin = self.load_manifest(manifest)
-
             if plugin is None:
-                shutil.rmtree(temp_dir)
                 return False, "plugin.json ist ungültig."
+            if not plugin.entry:
+                return False, "Das Plugin enthält keinen Entry-Point."
+
+            entry_file = manifest.parent / plugin.entry
+            if not entry_file.is_file():
+                return False, f"Entry-Datei fehlt: {plugin.entry}"
 
             target_dir = self.plugins_dir / plugin.plugin_id
-
             if target_dir.exists():
                 shutil.rmtree(target_dir)
 
-            if manifest.parent == temp_dir:
-                shutil.copytree(temp_dir, target_dir)
-            else:
-                shutil.copytree(manifest.parent, target_dir)
-
-            shutil.rmtree(temp_dir)
-
+            source_dir = temp_dir if manifest.parent == temp_dir else manifest.parent
+            shutil.copytree(source_dir, target_dir)
             return True, f"Plugin installiert: {plugin.name} v{plugin.version}"
-
         except Exception as error:
+            return False, f"Plugin konnte nicht installiert werden:\n{error}"
+        finally:
             if temp_dir.exists():
                 shutil.rmtree(temp_dir)
 
-            return False, f"Plugin konnte nicht installiert werden:\n{error}"
+    def uninstall(self, plugin: PluginInfo) -> tuple[bool, str]:
+        try:
+            if plugin.path.exists():
+                shutil.rmtree(plugin.path)
+            return True, f"Plugin entfernt: {plugin.name}"
+        except Exception as error:
+            return False, f"Plugin konnte nicht entfernt werden:\n{error}"

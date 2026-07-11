@@ -21,6 +21,7 @@ def _force_utf8_console():
 
 
 _force_utf8_console()
+from mediahub_version import APP_NAME, APP_VERSION, prepare_version_files
 ROOT = Path(__file__).resolve().parent
 
 
@@ -30,8 +31,6 @@ def _utf8_env():
     env["PYTHONIOENCODING"] = "utf-8"
     env["PYTHONUTF8"] = "1"
     return env
-
-APP_NAME = "MediaHub"
 
 DIST_DIR = ROOT / "dist"
 BUILD_DIR = ROOT / "build"
@@ -165,7 +164,7 @@ def create_portable_zip():
     copy_text_files(portable_dir)
     copy_docs(portable_dir)
 
-    zip_path = RELEASE_DIR / "MediaHub_Portable.zip"
+    zip_path = RELEASE_DIR / f"MediaHub_v{APP_VERSION}_Portable.zip"
     zip_folder(portable_dir, zip_path)
 
     return zip_path
@@ -182,7 +181,7 @@ def create_setup_zip(setup_file: Path | None):
     copy_text_files(setup_dir)
     copy_docs(setup_dir)
 
-    zip_path = RELEASE_DIR / "MediaHub_Setup.zip"
+    zip_path = RELEASE_DIR / f"MediaHub_v{APP_VERSION}_Setup.zip"
     zip_folder(setup_dir, zip_path)
 
     return zip_path
@@ -193,7 +192,7 @@ def create_docs_zip():
         print("WARNUNG: Keine Handbücher gefunden. Handbuch-ZIP wird übersprungen.")
         return None
 
-    docs_zip = RELEASE_DIR / "MediaHub_Handbuecher.zip"
+    docs_zip = RELEASE_DIR / f"MediaHub_v{APP_VERSION}_Handbuecher.zip"
 
     print(f"Erzeuge ZIP: {docs_zip.name}")
 
@@ -216,6 +215,7 @@ def cleanup_temp_release_folders():
 
 
 def main():
+    prepare_version_files()
     clean()
     build_docs()
     build_exe()

@@ -29,6 +29,10 @@ jobs:
           pip install -r requirements.txt
           pip install pyinstaller pillow reportlab python-docx markdown
 
+      - name: Prepare version files
+        run: |
+          python mediahub_version.py
+
       - name: Build documentation
         run: |
           python build_docs.py

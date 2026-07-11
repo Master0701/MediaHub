@@ -1,8 +1,4 @@
-#define MyAppName "MediaHub"
-#define MyAppVersion "1.0.1"
-#define MyAppPublisher "MediaHub"
-#define MyAppExeName "MediaHub.exe"
-#define MyAppSetupName "MediaHub_Setup_v1.0.1"
+#include "version_generated.iss"
 
 #define YtDlpUrl "https://github.com/yt-dlp/yt-dlp/releases/latest/download/yt-dlp.exe"
 #define FFmpegUrl1 "https://github.com/BtbN/FFmpeg-Builds/releases/download/latest/ffmpeg-master-latest-win64-gpl.zip"

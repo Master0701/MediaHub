@@ -1,5 +1,4 @@
 import hashlib
-import importlib.util
 import shutil
 import subprocess
 import sys
@@ -22,8 +21,7 @@ def _force_utf8_console():
 
 
 _force_utf8_console()
-APP_NAME = "MediaHub"
-APP_VERSION = "1.0.1"
+from mediahub_version import APP_NAME, APP_VERSION, prepare_version_files
 
 def _build_env():
     import os
@@ -313,6 +311,7 @@ def final_check():
 
 def main():
     try:
+        prepare_version_files()
         if not check_required_files():
             print()
             print("❌ Abbruch: Es fehlen Dateien.")

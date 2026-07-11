@@ -1,6 +1,26 @@
 # Changelog
 
-## v1.0.1 – MediaHub Teil 10
+## v1.0.3 – Plugin-Erweiterung und zentrale Versionsverwaltung
+
+### Neu
+
+- MediaHub für die neue Plugin-Erweiterung und zukünftige separat installierbare Plugins vorbereitet.
+- Release-Dateien erhalten ihre Versionsnummer jetzt automatisch aus einer zentralen Quelle.
+- Portable-, Setup- und Handbuch-Pakete werden direkt mit der aktuellen Versionsnummer benannt.
+
+### Verbessert
+
+- `src/mediahub/app_info.py` ist jetzt die einzige manuell gepflegte Versionsquelle.
+- EXE-Dateiversion und Installer-Definition werden vor jedem Build automatisch erzeugt.
+- Programmfenster, „Was ist neu?“, Dokumentation und Release-Build verwenden dieselbe Version.
+- GitHub-Release-Workflow übernimmt die bereits korrekt benannten Download-Dateien ohne nachträgliches Umbenennen.
+
+### Hinweise
+
+- Der vorhandene Passwortschutz des Release-Assistenten bleibt unverändert und abgeschlossen.
+- Interne Arbeitsbezeichnungen wie „MediaHub Teil 10“ wurden aus den offiziellen Release-Einträgen entfernt.
+
+## v1.0.1
 
 ### Fehlerbehebungen
 

@@ -46,24 +46,12 @@ jobs:
           $env:PYTHONIOENCODING = "utf-8"
           python build_release.py
 
-      - name: Rename release files
-        shell: pwsh
-        run: |
-          $version = "${{ github.ref_name }}"
-
-          Rename-Item "release/MediaHub_Portable.zip" "MediaHub_${version}_Portable.zip"
-
-          if (Test-Path "release/MediaHub_Setup.zip") {
-            Rename-Item "release/MediaHub_Setup.zip" "MediaHub_${version}_Setup.zip"
-          }
-
-          Rename-Item "release/MediaHub_Handbuecher.zip" "MediaHub_${version}_Handbuecher.zip"
-
       - name: Upload release artifacts
         uses: actions/upload-artifact@v4
         with:
           name: MediaHub-Release-${{ github.ref_name }}
           path: |
+            release/MediaHub_Setup_${{ github.ref_name }}.exe
             release/MediaHub_${{ github.ref_name }}_Portable.zip
             release/MediaHub_${{ github.ref_name }}_Setup.zip
             release/MediaHub_${{ github.ref_name }}_Handbuecher.zip
@@ -78,6 +66,7 @@ jobs:
           prerelease: ${{ contains(github.ref_name, 'test') || contains(github.ref_name, 'beta') || contains(github.ref_name, 'alpha') }}
           generate_release_notes: true
           files: |
+            release/MediaHub_Setup_${{ github.ref_name }}.exe
             release/MediaHub_${{ github.ref_name }}_Portable.zip
             release/MediaHub_${{ github.ref_name }}_Setup.zip
             release/MediaHub_${{ github.ref_name }}_Handbuecher.zip

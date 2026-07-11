@@ -48,6 +48,7 @@ from src.mediahub.gui.recovery_center import RecoveryCenter
 from src.mediahub.gui.help_center import HelpCenter
 from src.mediahub.gui.assistant_panel import AssistantPanel
 from src.mediahub.gui.plugin_center import PluginCenter
+from src.mediahub.plugins.plugin_api import MediaHubPluginAPI
 from src.mediahub.gui.release_gate import open_release_assistant_with_gate
 from src.mediahub.gui.video_selection_dialog import VideoSelectionDialog
 from src.mediahub.gui.setup_wizard import SetupWizard
@@ -72,9 +73,10 @@ from src.mediahub.services.download_service import DownloadService
 from src.mediahub.services.tool_service import ToolService
 from src.mediahub.services.archive_service import ArchiveService
 from src.mediahub.storage.repository import MediaRepository
+from src.mediahub.app_info import APP_VERSION
 
 
-APP_VERSION = "v1.0.1"
+APP_VERSION_LABEL = f"v{APP_VERSION}"
 
 
 class MainWindow(QMainWindow):
@@ -268,8 +270,19 @@ class MainWindow(QMainWindow):
         self.recovery_center = RecoveryCenter()
         self.help_center = HelpCenter(base_dir=self.base_dir)
         self.assistant_panel = AssistantPanel()
-        self.plugin_center = PluginCenter(base_dir=self.base_dir, parent=self)
-        self.plugin_center.open_plugin_callback = self.open_plugin_by_id
+        plugin_api = MediaHubPluginAPI(
+            base_dir=self.base_dir,
+            app_version=APP_VERSION,
+            repository=self.repository,
+            controller=self.controller,
+            logger=self.logger,
+            status_provider=lambda: {"ready": True},
+        )
+        self.plugin_center = PluginCenter(
+            base_dir=self.base_dir,
+            parent=self,
+            mediahub_api=plugin_api,
+        )
 
         self.channel_panel.channel_selected_callback = self.settings_panel.load_channel
         self.settings_panel.change_callback = self.on_settings_changed
@@ -659,20 +672,20 @@ class MainWindow(QMainWindow):
         except Exception:
             state = {}
 
-        if state.get("last_whats_new") == APP_VERSION:
+        if state.get("last_whats_new") == APP_VERSION_LABEL:
             return
 
         QMessageBox.information(
             self,
             "Was ist neu?",
-            f"MediaHub {APP_VERSION}\n\n"
-            "Neu in v1.0.1:\n"
+            f"MediaHub {APP_VERSION_LABEL}\n\n"
+            f"Neu in {APP_VERSION_LABEL}:\n"
             "• Lokale Videos und Ordner wieder direkt aus der Bibliothek öffnen.\n"
             "• Downloads werden zuverlässig mit Dateipfad in SQLite gespeichert.\n"
             "• Bibliothek lädt beim Seitenwechsel nicht mehr unnötig neu.\n"
             "• Kanalbereich und Kanalinformationen übersichtlicher dargestellt.",
         )
-        state["last_whats_new"] = APP_VERSION
+        state["last_whats_new"] = APP_VERSION_LABEL
         try:
             state_file.write_text(json.dumps(state, indent=2, ensure_ascii=False), encoding="utf-8")
         except Exception:
@@ -1108,13 +1121,6 @@ class MainWindow(QMainWindow):
             self.plugin_center.refresh()
         self._select_nav_page("Plugins")
 
-    def open_plugin_by_id(self, plugin_id):
-        QMessageBox.information(
-            self,
-            "Plugin",
-            f"Dieses Plugin ist in MediaHub v1.0 noch nicht als ausführbares Plugin verfügbar:\n{plugin_id}"
-        )
-
     def open_help_center(self):
         self._select_nav_page("Hilfe")
 
@@ -1472,6 +1478,11 @@ class MainWindow(QMainWindow):
             prefix = "✓" if row["ok"] else "⚠"
             lines.append(f"{prefix} {row['name']}: {row['detail']}")
         return lines
+
+    def closeEvent(self, event):
+        if self.plugin_center is not None:
+            self.plugin_center.shutdown_plugins()
+        super().closeEvent(event)
 
     def update_status(self, text):
         channel_count = len(self.controller.get_channels())
