@@ -20,6 +20,7 @@ from PySide6.QtWidgets import (
     QGroupBox,
     QHBoxLayout,
     QLabel,
+    QLineEdit,
     QInputDialog,
     QMessageBox,
     QPushButton,
@@ -168,7 +169,14 @@ class ReleaseAssistantDialog(QDialog):
         self.btn_refresh = QPushButton("🔄 Status prüfen")
         self.btn_docs = QPushButton("📖 Handbücher bauen")
         self.btn_build = QPushButton("⚙ MediaHub bauen")
-        self.btn_release = QPushButton("🚀 Release erstellen")
+        self.version_input = QLineEdit()
+        self.version_input.setPlaceholderText("Neue Version, z. B. 1.0.4")
+        try:
+            from src.mediahub.app_info import APP_VERSION
+            self.version_input.setText(APP_VERSION)
+        except Exception:
+            pass
+        self.btn_release = QPushButton("🚀 Komplettes Release veröffentlichen")
         self.btn_release.setObjectName("PrimaryButton")
         self.btn_git_status = QPushButton("🔎 Git Status")
         self.btn_git_add = QPushButton("➕ Änderungen vormerken")
@@ -177,16 +185,18 @@ class ReleaseAssistantDialog(QDialog):
         self.btn_clear_log = QPushButton("🧹 Log leeren")
         self.btn_close = QPushButton("Schließen")
 
-        actions.addWidget(self.btn_refresh, 0, 0)
-        actions.addWidget(self.btn_docs, 0, 1)
-        actions.addWidget(self.btn_build, 0, 2)
+        actions.addWidget(QLabel("Neue Version:"), 0, 0)
+        actions.addWidget(self.version_input, 0, 1, 1, 2)
         actions.addWidget(self.btn_release, 0, 3)
-        actions.addWidget(self.btn_git_status, 1, 0)
-        actions.addWidget(self.btn_git_add, 1, 1)
-        actions.addWidget(self.btn_git_commit, 1, 2)
-        actions.addWidget(self.btn_git_push, 1, 3)
-        actions.addWidget(self.btn_clear_log, 2, 0)
-        actions.addWidget(self.btn_close, 2, 3)
+        actions.addWidget(self.btn_refresh, 1, 0)
+        actions.addWidget(self.btn_docs, 1, 1)
+        actions.addWidget(self.btn_build, 1, 2)
+        actions.addWidget(self.btn_git_status, 2, 0)
+        actions.addWidget(self.btn_git_add, 2, 1)
+        actions.addWidget(self.btn_git_commit, 2, 2)
+        actions.addWidget(self.btn_git_push, 2, 3)
+        actions.addWidget(self.btn_clear_log, 3, 0)
+        actions.addWidget(self.btn_close, 3, 3)
         root.addWidget(actions_box)
 
         log_box = QGroupBox("📋 Log")
@@ -249,24 +259,34 @@ class ReleaseAssistantDialog(QDialog):
         return f"{prefix} {detail}"
 
     def release_one_click(self):
-        script = self.root_dir / "build_release.py"
-        if script.exists():
-            commands = [("Release-Paket erstellen", self.python_cmd("build_release.py"))]
-        else:
-            commands = [("MediaHub bauen", self.python_cmd("build.py"))]
+        version = self.version_input.text().strip().lstrip("v")
+        if not version:
+            QMessageBox.warning(self, "Version fehlt", "Bitte eine neue Versionsnummer eingeben, zum Beispiel 1.0.4.")
+            return
+
+        script = self.root_dir / "publish_release.py"
+        if not script.exists():
+            QMessageBox.critical(self, "Datei fehlt", "publish_release.py wurde nicht gefunden.")
+            return
 
         answer = QMessageBox.question(
             self,
-            "Release erstellen",
-            "Jetzt den Release-Build starten?\n\nDer Assistent nutzt deine vorhandenen Build-Skripte und schreibt alles ins Log.",
+            "Komplettes Release veröffentlichen",
+            f"MediaHub v{version} vollständig veröffentlichen?\n\n"
+            "Der Assistent aktualisiert die Version, baut EXE, Setup und Handbücher, "
+            "erstellt Commit und Tag und überträgt alles zu GitHub.\n\n"
+            "GitHub Actions veröffentlicht danach automatisch die Download-Dateien.",
             QMessageBox.Yes | QMessageBox.No,
             QMessageBox.No,
         )
         if answer != QMessageBox.Yes:
-            self.append_log("Release-Erstellung abgebrochen.")
+            self.append_log("Release-Veröffentlichung abgebrochen.")
             return
 
-        self.run_commands(commands, after_finish=self.refresh_status)
+        self.run_commands(
+            [(f"MediaHub v{version} vollständig veröffentlichen", [sys.executable, str(script), version])],
+            after_finish=self.refresh_status,
+        )
 
     def git_add(self):
         answer = QMessageBox.question(
@@ -357,6 +377,7 @@ class ReleaseAssistantDialog(QDialog):
             self.btn_git_push,
             self.btn_clear_log,
             self.btn_close,
+            self.version_input,
         ]:
             button.setEnabled(enabled)
 
