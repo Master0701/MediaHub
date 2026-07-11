@@ -72,3 +72,36 @@ jobs:
             release/MediaHub_${{ github.ref_name }}_Portable.zip
             release/MediaHub_${{ github.ref_name }}_Setup.zip
             release/MediaHub_${{ github.ref_name }}_Handbuecher.zip
+
+      - name: Update release description
+        uses: actions/github-script@v8
+        env:
+          RELEASE_NOTES_PATH: release/RELEASE_NOTES.md
+        with:
+          script: |
+            const fs = require("fs");
+            const body = fs.readFileSync(
+              process.env.RELEASE_NOTES_PATH,
+              "utf8"
+            );
+
+            const release = await github.rest.repos.getReleaseByTag({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              tag: context.ref.replace("refs/tags/", ""),
+            });
+
+            await github.rest.repos.updateRelease({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              release_id: release.data.id,
+              name: `MediaHub ${context.ref.replace("refs/tags/", "")}`,
+              body,
+              draft: false,
+              prerelease:
+                context.ref.includes("test") ||
+                context.ref.includes("beta") ||
+                context.ref.includes("alpha"),
+            });
+
+            core.info("GitHub-Release-Beschreibung wurde aktualisiert.");
