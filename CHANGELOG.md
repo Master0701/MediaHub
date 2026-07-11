@@ -1,5 +1,15 @@
 # Changelog
 
+## v1.0.6
+
+### Neu
+
+- Release über den MediaHub Release-Assistenten erstellt.
+
+### Verbessert
+
+- Versions-, Build- und GitHub-Release-Ablauf automatisiert.
+
 ## v1.0.5
 
 # Änderungen

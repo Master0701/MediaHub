@@ -1,0 +1,22 @@
+@import url("../../../shared/mediahub_design/mediahub-theme.css");
+
+header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 18px var(--mh-space-lg);
+  background: var(--mh-surface);
+  border-bottom: 1px solid var(--mh-border);
+}
+
+h1 { margin: 0; font-size: 22px; }
+.status { color: var(--mh-primary); font-weight: 700; }
+main { padding: var(--mh-space-lg); }
+.card {
+  max-width: 760px;
+  background: var(--mh-surface);
+  border: 1px solid var(--mh-border);
+  padding: 20px;
+  border-radius: var(--mh-radius-md);
+}
+.card h2 { color: var(--mh-primary); }

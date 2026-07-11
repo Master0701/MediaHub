@@ -27,7 +27,7 @@ class PluginInfo:
 
 class MediaHubPluginAPI:
     """Kontrollierte Schnittstelle für externe MediaHub-Plugins."""
-    def __init__(self, *, base_dir: Path, app_version: str, repository: Any = None, controller: Any = None, logger: Any = None, status_provider: Callable[[], dict] | None = None, download_status_provider: Callable[[], dict] | None = None):
+    def __init__(self, *, base_dir: Path, app_version: str, repository: Any = None, controller: Any = None, logger: Any = None, status_provider: Callable[[], dict] | None = None, download_status_provider: Callable[[], dict] | None = None, action_provider: Callable[[str, dict], dict] | None = None):
         self.base_dir = Path(base_dir)
         self.app_version = str(app_version)
         self._repository = repository
@@ -35,6 +35,7 @@ class MediaHubPluginAPI:
         self._logger = logger
         self._status_provider = status_provider
         self._download_status_provider = download_status_provider
+        self._action_provider = action_provider
 
     def get_status(self) -> dict:
         result = {"application":"MediaHub","version":self.app_version,"connected":True,"channels":self.get_channel_count(),"playlists":self.get_playlist_count(),"videos":self.get_video_count()}
@@ -233,6 +234,34 @@ class MediaHubPluginAPI:
             "playlists": self.get_playlist_count(),
             "videos": self.get_video_count(),
         }
+
+    def execute_action(self, action: str, payload: dict | None = None) -> dict:
+        """Fuehrt nur explizit freigegebene MediaHub-Aktionen aus."""
+        allowed = {
+            "assistant.open",
+            "plugins.open",
+            "channels.sync",
+            "channels.sync_current",
+            "downloads.cancel",
+            "downloads.select_videos",
+            "downloads.select_playlists",
+            "jobs.run_next",
+            "scheduler.check",
+            "scheduler.toggle",
+        }
+        action = str(action or "").strip()
+        if action not in allowed:
+            return {"ok": False, "accepted": False, "message": "Aktion ist nicht freigegeben."}
+        if self._action_provider is None:
+            return {"ok": False, "accepted": False, "message": "MediaHub-Aktionsschnittstelle ist nicht verfuegbar."}
+        try:
+            result = self._action_provider(action, dict(payload or {}))
+            if isinstance(result, dict):
+                return result
+            return {"ok": bool(result), "accepted": bool(result), "message": "Aktion wurde angenommen."}
+        except Exception as error:
+            self.log(f"Plugin-Aktion {action} fehlgeschlagen: {error}", level="error")
+            return {"ok": False, "accepted": False, "message": str(error)}
 
     def log(self,message: str,*,level: str="info") -> None:
         if self._logger is None: return

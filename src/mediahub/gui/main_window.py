@@ -30,7 +30,7 @@ from PySide6.QtWidgets import (
     QWidget,
 )
 from PySide6.QtGui import QAction, QDesktopServices, QKeySequence
-from PySide6.QtCore import Qt, QUrl
+from PySide6.QtCore import Qt, QUrl, Signal, Slot
 
 from src.mediahub.gui.app_theme import dark_theme
 from src.mediahub.gui.channel_panel import ChannelPanel
@@ -80,8 +80,10 @@ APP_VERSION_LABEL = f"v{APP_VERSION}"
 
 
 class MainWindow(QMainWindow):
+    plugin_action_requested = Signal(str, object)
     def __init__(self, controller, logger=None, repository=None):
         super().__init__()
+        self.plugin_action_requested.connect(self._execute_plugin_action)
 
         self.controller = controller
         self.logger = logger
@@ -251,6 +253,58 @@ class MainWindow(QMainWindow):
             toolbar.addAction(action)
         self.addToolBar(toolbar)
 
+    def _queue_plugin_action(self, action: str, payload: dict | None = None) -> dict:
+        """Stellt eine Plugin-Aktion threadsicher in den Qt-Hauptthread."""
+        self.plugin_action_requested.emit(str(action), dict(payload or {}))
+        return {
+            "ok": True,
+            "accepted": True,
+            "message": "Aktion wurde an MediaHub uebergeben.",
+        }
+
+    @Slot(str, object)
+    def _execute_plugin_action(self, action: str, payload: object):
+        data = dict(payload or {}) if isinstance(payload, dict) else {}
+        try:
+            if action == "assistant.open":
+                self.open_assistant()
+            elif action == "plugins.open":
+                self.open_plugin_center()
+            elif action == "channels.sync_current":
+                self.sync_current_channel()
+            elif action == "channels.sync":
+                channels = list(self.controller.get_channels() or [])
+                index = int(data.get("channel_index", data.get("index", -1)))
+                if index < 0 or index >= len(channels):
+                    raise ValueError("Der ausgewaehlte Kanal wurde nicht gefunden.")
+                channel = channels[index]
+                if hasattr(self.controller, "set_current_channel"):
+                    self.controller.set_current_channel(channel)
+                self.sync_manager.sync_channel(channel)
+                self.channel_panel.update_current_info()
+                self.library_manager.refresh()
+                self.statistics_manager.refresh_dashboard()
+            elif action == "downloads.cancel":
+                self.cancel_download()
+            elif action == "downloads.select_videos":
+                self.select_and_download_videos()
+            elif action == "downloads.select_playlists":
+                self.select_playlists_and_download()
+            elif action == "jobs.run_next":
+                self.run_next_job()
+            elif action == "scheduler.check":
+                self.check_scheduler_now()
+            elif action == "scheduler.toggle":
+                self.toggle_scheduler_automatic()
+            else:
+                raise ValueError(f"Nicht unterstuetzte Plugin-Aktion: {action}")
+            if self.log_panel is not None:
+                self.log_panel.write(f"WebRemote-Aktion ausgefuehrt: {action}")
+        except Exception as error:
+            if self.log_panel is not None:
+                self.log_panel.write(f"WebRemote-Aktion fehlgeschlagen ({action}): {error}")
+            self.update_status(f"WebRemote-Aktion fehlgeschlagen: {error}")
+
     def build_layout(self):
         main_widget = QWidget()
         main_layout = QHBoxLayout(main_widget)
@@ -282,6 +336,7 @@ class MainWindow(QMainWindow):
                 if self.download_manager is not None
                 else {"active": False, "queue": []}
             ),
+            action_provider=self._queue_plugin_action,
         )
         self.plugin_center = PluginCenter(
             base_dir=self.base_dir,
