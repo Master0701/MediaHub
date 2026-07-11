@@ -210,8 +210,10 @@ def create_docs_zip():
 
 def copy_release_notes():
     if not PENDING_RELEASE_NOTES.exists():
-        print("WARNUNG: RELEASE_NOTES_PENDING.md wurde nicht gefunden.")
-        return None
+        raise FileNotFoundError(
+            "RELEASE_NOTES_PENDING.md wurde nicht gefunden. "
+            "Das Release wird abgebrochen, damit GitHub kein Release ohne Beschreibung erstellt."
+        )
 
     target = RELEASE_DIR / "RELEASE_NOTES.md"
     shutil.copy2(PENDING_RELEASE_NOTES, target)

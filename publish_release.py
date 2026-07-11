@@ -8,6 +8,7 @@ from pathlib import Path
 
 ROOT = Path(__file__).resolve().parent
 APP_INFO = ROOT / "src" / "mediahub" / "app_info.py"
+PENDING_RELEASE_NOTES = ROOT / "RELEASE_NOTES_PENDING.md"
 CHANGELOG = ROOT / "CHANGELOG.md"
 README = ROOT / "README.md"
 VERSION_RE = re.compile(r'^APP_VERSION\s*=\s*["\']([^"\']+)["\']\s*$', re.MULTILINE)
@@ -113,10 +114,26 @@ def main() -> int:
 
     branch = current_branch()
     run("git", "add", "-A")
+
+    # Die temporären Release-Notizen stehen absichtlich in .gitignore.
+    # Für den Release-Commit werden sie trotzdem aufgenommen, damit der
+    # GitHub-Actions-Checkout des Tags die Datei sicher enthält.
+    if not PENDING_RELEASE_NOTES.exists():
+        raise SystemExit("RELEASE_NOTES_PENDING.md fehlt vor dem Git-Commit.")
+    run("git", "add", "-f", str(PENDING_RELEASE_NOTES.name))
+
     run("git", "commit", "-m", f"MediaHub {tag}")
     run("git", "push", "origin", branch)
     run("git", "tag", "-a", tag, "-m", f"MediaHub {tag}")
     run("git", "push", "origin", tag)
+
+    # Auf dem Hauptbranch bleibt die temporäre Datei nicht liegen. Der Tag
+    # verweist weiterhin auf den Release-Commit, in dem sie vorhanden ist.
+    if PENDING_RELEASE_NOTES.exists():
+        PENDING_RELEASE_NOTES.unlink()
+        run("git", "add", "-u", str(PENDING_RELEASE_NOTES.name))
+        run("git", "commit", "-m", f"Temporäre Release-Notizen nach {tag} entfernen")
+        run("git", "push", "origin", branch)
 
     print("\nFertig: Der Tag wurde zu GitHub übertragen.", flush=True)
     print("GitHub Actions baut nun Setup, Portable-ZIP und Handbücher und erstellt das Release.", flush=True)
