@@ -37,6 +37,7 @@ BUILD_DIR = ROOT / "build"
 RELEASE_DIR = ROOT / "release"
 
 DOCS_DIR = ROOT / "assets" / "docs"
+PENDING_RELEASE_NOTES = ROOT / "RELEASE_NOTES_PENDING.md"
 
 SPEC_FILE = ROOT / "MediaHub.spec"
 EXE_FILE = DIST_DIR / f"{APP_NAME}.exe"
@@ -207,6 +208,17 @@ def create_docs_zip():
     return docs_zip
 
 
+def copy_release_notes():
+    if not PENDING_RELEASE_NOTES.exists():
+        print("WARNUNG: RELEASE_NOTES_PENDING.md wurde nicht gefunden.")
+        return None
+
+    target = RELEASE_DIR / "RELEASE_NOTES.md"
+    shutil.copy2(PENDING_RELEASE_NOTES, target)
+    print(f"Release-Notizen übernommen: {target}")
+    return target
+
+
 def cleanup_temp_release_folders():
     for folder_name in ["portable", "setup"]:
         folder = RELEASE_DIR / folder_name
@@ -225,6 +237,7 @@ def main():
     portable_zip = create_portable_zip()
     setup_zip = create_setup_zip(setup_file)
     docs_zip = create_docs_zip()
+    release_notes = copy_release_notes()
 
     cleanup_temp_release_folders()
 
@@ -241,6 +254,11 @@ def main():
         print(f"- {docs_zip}")
     else:
         print("- Handbuch ZIP übersprungen")
+
+    if release_notes:
+        print(f"- {release_notes}")
+    else:
+        print("- Release-Notizen fehlen")
 
 
 if __name__ == "__main__":

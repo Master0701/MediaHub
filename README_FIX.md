@@ -1,23 +1,29 @@
-# MediaHub Fix 27 - Reparatur für Fix 26
+# MediaHub Release-Assistent v2
 
-## Problem
+## Dateien ersetzen
 
-Fix 26 hat beim Import abgebrochen mit:
+- `build_release.py`
+- `publish_release.py`
+- `src/mediahub/gui/release_assistant_dialog.py`
 
-```text
-AttributeError: 'DownloadService' object has no attribute '_valid_playlist_image_for_channel'
-```
+## Datei in den MediaHub-Hauptordner legen
 
-## Fix
+- `RELEASE_NOTES_PENDING.md`
 
-Diese Methode und die dazugehörige Bildvergleichslogik sind wieder in `download_service.py` enthalten.
+## Neuer Ablauf
 
-## Ersetzt nur
+1. Release-Assistent liest `RELEASE_NOTES_PENDING.md`.
+2. Die Notizen werden im Dialog angezeigt.
+3. Ohne Notizen startet kein komplettes Release.
+4. Die Commit-Nachricht wird aus `## Commit-Nachricht` übernommen.
+5. `CHANGELOG.md` erhält die aktuellen Notizen.
+6. `build_release.py` kopiert sie nach `release/RELEASE_NOTES.md`.
+7. `publish_release.py` verwendet die Commit-Nachricht automatisch.
+8. Erst wenn der gesamte Prozess erfolgreich mit Exit-Code 0 endet, löscht der Dialog die temporäre Datei.
+9. Bei einem Fehler bleibt die Datei erhalten.
 
-```text
-src\mediahub\services\download_service.py
-```
+## Nicht geändert
 
-## Danach testen
-
-Ein Video aus einer Playlist in einen leeren Testordner laden.
+- `release_gate.py`
+- `build.py`
+- `src/mediahub/app_info.py`

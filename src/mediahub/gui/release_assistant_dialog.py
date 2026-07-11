@@ -12,7 +12,7 @@ def _mediahub_utf8_env():
     env["PYTHONUTF8"] = "1"
     return env
 
-from PySide6.QtCore import QProcess, Qt
+from PySide6.QtCore import QProcess, QProcessEnvironment, Qt
 from PySide6.QtWidgets import (
     QDialog,
     QFrame,
@@ -45,6 +45,9 @@ class ReleaseAssistantDialog(QDialog):
         self.process: QProcess | None = None
         self.command_queue: list[tuple[str, list[str]]] = []
         self.current_step = ""
+        self.release_notes_path = self.root_dir / "RELEASE_NOTES_PENDING.md"
+        self.release_notes_text = ""
+        self.release_commit_message = ""
 
         self.setWindowTitle("MediaHub Release Assistant")
         self.resize(980, 720)
@@ -155,6 +158,7 @@ class ReleaseAssistantDialog(QDialog):
             ("tools", "Werkzeuge"),
             ("git", "Git"),
             ("github", "GitHub"),
+            ("release_notes", "Release-Notizen"),
         ]
         for row, (key, label) in enumerate(rows):
             status_layout.addWidget(QLabel(label + ":"), row, 0)
@@ -163,6 +167,14 @@ class ReleaseAssistantDialog(QDialog):
             self.status_labels[key] = value
             status_layout.addWidget(value, row, 1)
         root.addWidget(status_box)
+
+        notes_box = QGroupBox("📝 Release-Notizen")
+        notes_layout = QVBoxLayout(notes_box)
+        self.release_notes_preview = QPlainTextEdit()
+        self.release_notes_preview.setReadOnly(True)
+        self.release_notes_preview.setMaximumHeight(180)
+        notes_layout.addWidget(self.release_notes_preview)
+        root.addWidget(notes_box)
 
         actions_box = QGroupBox("🔨 Aktionen")
         actions = QGridLayout(actions_box)
@@ -254,7 +266,64 @@ class ReleaseAssistantDialog(QDialog):
             except Exception:
                 github_ok = False
         self.set_status("github", "✔ GitHub-Remote gefunden" if github_ok else "⚠ GitHub-Remote nicht erkannt")
+
+        self.load_release_notes()
+        if self.release_notes_text:
+            self.set_status(
+                "release_notes",
+                f"✔ RELEASE_NOTES_PENDING.md gefunden · Commit: {self.release_commit_message or 'Standardtext'}",
+            )
+        else:
+            self.set_status("release_notes", "⚠ RELEASE_NOTES_PENDING.md fehlt oder ist leer")
+
         self.append_log("Statusprüfung fertig.")
+
+    def load_release_notes(self) -> None:
+        self.release_notes_text = ""
+        self.release_commit_message = ""
+
+        if self.release_notes_path.exists():
+            try:
+                self.release_notes_text = self.release_notes_path.read_text(
+                    encoding="utf-8"
+                ).strip()
+            except Exception as error:
+                self.append_log(f"Release-Notizen konnten nicht gelesen werden: {error}")
+
+        self.release_commit_message = self.extract_commit_message(
+            self.release_notes_text
+        )
+
+        if hasattr(self, "release_notes_preview"):
+            self.release_notes_preview.setPlainText(
+                self.release_notes_text
+                or "Keine RELEASE_NOTES_PENDING.md gefunden."
+            )
+
+    @staticmethod
+    def extract_commit_message(text: str) -> str:
+        lines = text.splitlines()
+        for index, line in enumerate(lines):
+            if line.strip().lower() == "## commit-nachricht":
+                for candidate in lines[index + 1:]:
+                    candidate = candidate.strip()
+                    if candidate and not candidate.startswith("#"):
+                        return candidate
+                break
+        return ""
+
+    def finish_successful_release(self) -> None:
+        if self.release_notes_path.exists():
+            try:
+                self.release_notes_path.unlink()
+                self.append_log(
+                    "RELEASE_NOTES_PENDING.md wurde nach erfolgreichem Release gelöscht."
+                )
+            except Exception as error:
+                self.append_log(
+                    f"WARNUNG: Release-Notizen konnten nicht gelöscht werden: {error}"
+                )
+        self.refresh_status()
 
     def ok_warn(self, checks: list[bool], detail: str) -> str:
         prefix = "✔" if all(checks) else "⚠"
@@ -271,13 +340,29 @@ class ReleaseAssistantDialog(QDialog):
             QMessageBox.critical(self, "Datei fehlt", "publish_release.py wurde nicht gefunden.")
             return
 
+        self.load_release_notes()
+        if not self.release_notes_text:
+            QMessageBox.warning(
+                self,
+                "Release-Notizen fehlen",
+                "RELEASE_NOTES_PENDING.md wurde nicht gefunden oder ist leer.\n\n"
+                "Das Release wurde nicht gestartet.",
+            )
+            self.append_log("Release abgebrochen: Release-Notizen fehlen.")
+            return
+
+        preview = self.release_notes_text
+        if len(preview) > 1600:
+            preview = preview[:1600].rstrip() + "\n\n[...]"
+
         answer = QMessageBox.question(
             self,
             "Komplettes Release veröffentlichen",
             f"MediaHub v{version} vollständig veröffentlichen?\n\n"
             "Der Assistent aktualisiert die Version, baut EXE, Setup und Handbücher, "
             "erstellt Commit und Tag und überträgt alles zu GitHub.\n\n"
-            "GitHub Actions veröffentlicht danach automatisch die Download-Dateien.",
+            "Folgende Release-Notizen werden verwendet:\n\n"
+            f"{preview}",
             QMessageBox.Yes | QMessageBox.No,
             QMessageBox.No,
         )
@@ -290,7 +375,7 @@ class ReleaseAssistantDialog(QDialog):
 
         self.run_commands(
             [(f"MediaHub v{version} vollständig veröffentlichen", [sys.executable, str(script), version])],
-            after_finish=self.refresh_status,
+            after_finish=self.finish_successful_release,
         )
 
     def _confirm_release_password(self, version: str) -> bool:
@@ -340,7 +425,15 @@ class ReleaseAssistantDialog(QDialog):
             self.run_commands([("Git add", ["git", "add", "-A"]), ("Git Status", ["git", "status", "--short", "--branch"])])
 
     def git_commit(self):
-        message, ok = QInputDialog.getText(self, "Commit erstellen", "Commit-Nachricht:")
+        self.load_release_notes()
+        default_message = self.release_commit_message or ""
+        message, ok = QInputDialog.getText(
+            self,
+            "Commit erstellen",
+            "Commit-Nachricht:",
+            QLineEdit.EchoMode.Normal,
+            default_message,
+        )
         message = message.strip()
         if ok and message:
             self.run_commands([("Git commit", ["git", "commit", "-m", message]), ("Git Status", ["git", "status", "--short", "--branch"])])
@@ -382,6 +475,18 @@ class ReleaseAssistantDialog(QDialog):
 
         self.process = QProcess(self)
         self.process.setWorkingDirectory(str(self.root_dir))
+
+        environment = QProcessEnvironment.systemEnvironment()
+        if self.release_notes_path.exists():
+            environment.insert(
+                "MEDIAHUB_RELEASE_NOTES_FILE",
+                str(self.release_notes_path),
+            )
+            environment.insert(
+                "MEDIAHUB_RELEASE_COMMIT_MESSAGE",
+                self.release_commit_message,
+            )
+        self.process.setProcessEnvironment(environment)
         self.process.setProcessChannelMode(QProcess.MergedChannels)
         self.process.readyReadStandardOutput.connect(self.on_process_output)
         self.process.finished.connect(self.on_process_finished)

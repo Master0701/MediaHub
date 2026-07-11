@@ -277,6 +277,11 @@ class MainWindow(QMainWindow):
             controller=self.controller,
             logger=self.logger,
             status_provider=lambda: {"ready": True},
+            download_status_provider=lambda: (
+                self.download_manager.get_public_download_status()
+                if self.download_manager is not None
+                else {"active": False, "queue": []}
+            ),
         )
         self.plugin_center = PluginCenter(
             base_dir=self.base_dir,

@@ -84,6 +84,16 @@ class DownloadManager:
         self.queue_panel = queue_panel
         self.queue_dialog = None
         self.ui_bridge = DownloadUiBridge(self)
+        self._public_download_status = {
+            "active": False,
+            "status": "Kein Download aktiv",
+            "current_title": "",
+            "item_progress": 0,
+            "total_progress": 0,
+            "done_count": 0,
+            "total_count": 0,
+            "queue": [],
+        }
 
         if self.queue_panel is not None:
             self.queue_panel.set_cancel_callback(self.cancel_download)
@@ -181,7 +191,37 @@ class DownloadManager:
             self.queue_dialog.raise_()
             self.queue_dialog.activateWindow()
 
+    def get_public_download_status(self):
+        snapshot = dict(self._public_download_status)
+        snapshot["queue"] = [dict(item) for item in self._public_download_status.get("queue", [])]
+        return snapshot
+
+    def _set_public_item_status(self, index, status, progress=None):
+        queue = self._public_download_status.get("queue", [])
+        if 0 <= index < len(queue):
+            queue[index]["status"] = status
+            if progress is not None:
+                queue[index]["progress"] = max(0, min(100, int(progress)))
+
     def _load_queue_items(self, download_items):
+        public_queue = []
+        for item in list(download_items or []):
+            public_queue.append({
+                "title": str(item.get("title", "Ohne Titel")),
+                "playlist": str(item.get("playlist", "")),
+                "status": "members_only" if int(item.get("is_members_only") or 0) == 1 else "waiting",
+                "progress": 0,
+            })
+        self._public_download_status.update({
+            "active": bool(public_queue),
+            "status": "Warteschlange vorbereitet" if public_queue else "Kein Download aktiv",
+            "current_title": "",
+            "item_progress": 0,
+            "total_progress": 0,
+            "done_count": 0,
+            "total_count": len(public_queue),
+            "queue": public_queue,
+        })
         if self.queue_panel is not None:
             self.queue_panel.load_items(download_items)
 
@@ -425,28 +465,44 @@ class DownloadManager:
         return download_items
 
     def on_item_progress(self, value):
+        value = max(0, min(100, int(value)))
+        self._public_download_status["item_progress"] = value
+        queue = self._public_download_status.get("queue", [])
+        for index, item in enumerate(queue):
+            if item.get("status") == "running":
+                self._set_public_item_status(index, "running", value)
+                break
         for view in self._queue_views():
             view.set_item_progress(value)
 
     def on_queue_progress(self, value):
+        self._public_download_status["total_progress"] = max(0, min(100, int(value)))
         # Statusbar nicht bei jedem Fortschritt neu zeichnen; das vermeidet Repaint-Stress.
         for view in self._queue_views():
             view.set_total_progress(value)
 
     def on_item_started(self, index, title):
+        self._public_download_status.update({"active": True, "status": "Download läuft", "current_title": str(title), "item_progress": 0})
+        self._set_public_item_status(index, "running", 0)
         for view in self._queue_views():
             view.mark_running(index, title)
 
     def on_item_finished(self, index, title):
+        self._set_public_item_status(index, "done", 100)
+        self._public_download_status["done_count"] = max(self._public_download_status.get("done_count", 0), index + 1)
+        self._public_download_status["item_progress"] = 100
         for view in self._queue_views():
             view.mark_done(index, title)
 
     def on_item_cancelled(self, index, title):
+        self._set_public_item_status(index, "cancelled")
+        self._public_download_status.update({"active": False, "status": "Download abgebrochen", "current_title": str(title)})
         for view in self._queue_views():
             view.mark_cancelled(index, title)
 
 
     def on_item_members_only(self, index, title):
+        self._set_public_item_status(index, "members_only")
         for view in self._queue_views():
             if hasattr(view, "mark_members_only"):
                 view.mark_members_only(index, title)
@@ -460,6 +516,7 @@ class DownloadManager:
         self.update_status("Mitglieder-Video übersprungen")
 
     def on_current_download_item(self, title):
+        self._public_download_status["current_title"] = str(title or "")
         if title:
             self.log_panel.set_status(f"Lädt gerade: {title}")
         else:
@@ -473,6 +530,14 @@ class DownloadManager:
         self.download_worker = None
 
     def on_download_finished(self):
+        self._public_download_status.update({
+            "active": False,
+            "status": "Warteschlange fertig",
+            "current_title": "",
+            "item_progress": 100,
+            "total_progress": 100,
+            "done_count": self._public_download_status.get("total_count", 0),
+        })
         for view in self._queue_views():
             view.finish()
 
@@ -487,6 +552,7 @@ class DownloadManager:
         self.update_status("Download fertig")
 
     def on_download_error(self, error: str):
+        self._public_download_status.update({"active": False, "status": f"Download-Fehler: {error}"})
         for view in self._queue_views():
             view.btn_cancel.setEnabled(False)
 

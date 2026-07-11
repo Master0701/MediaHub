@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import argparse
+import os
 import re
 import subprocess
 import sys
@@ -9,6 +10,7 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parent
 APP_INFO = ROOT / "src" / "mediahub" / "app_info.py"
 CHANGELOG = ROOT / "CHANGELOG.md"
+DEFAULT_RELEASE_NOTES = ROOT / "RELEASE_NOTES_PENDING.md"
 VERSION_RE = re.compile(r'^APP_VERSION\s*=\s*["\']([^"\']+)["\']\s*$', re.MULTILINE)
 VALID_VERSION_RE = re.compile(r"^\d+\.\d+\.\d+(?:[-+][0-9A-Za-z.-]+)?$")
 
@@ -26,17 +28,62 @@ def set_version(version: str) -> None:
     APP_INFO.write_text(updated, encoding="utf-8")
 
 
-def ensure_changelog_entry(version: str) -> None:
+def read_release_notes() -> tuple[Path, str]:
+    configured = os.environ.get("MEDIAHUB_RELEASE_NOTES_FILE", "").strip()
+    notes_path = Path(configured) if configured else DEFAULT_RELEASE_NOTES
+
+    if not notes_path.exists():
+        raise RuntimeError(
+            f"Release-Notizen wurden nicht gefunden: {notes_path}"
+        )
+
+    text = notes_path.read_text(encoding="utf-8").strip()
+    if not text:
+        raise RuntimeError(
+            f"Release-Notizen sind leer: {notes_path}"
+        )
+
+    return notes_path, text
+
+
+def extract_commit_message(notes: str, version: str) -> str:
+    configured = os.environ.get(
+        "MEDIAHUB_RELEASE_COMMIT_MESSAGE",
+        "",
+    ).strip()
+    if configured:
+        return configured
+
+    lines = notes.splitlines()
+    for index, line in enumerate(lines):
+        if line.strip().lower() == "## commit-nachricht":
+            for candidate in lines[index + 1:]:
+                candidate = candidate.strip()
+                if candidate and not candidate.startswith("#"):
+                    return candidate
+            break
+
+    return f"MediaHub v{version}"
+
+
+def release_body_without_commit_section(notes: str) -> str:
+    lines = notes.splitlines()
+    output: list[str] = []
+
+    for line in lines:
+        if line.strip().lower() == "## commit-nachricht":
+            break
+        output.append(line)
+
+    return "\n".join(output).strip()
+
+
+def ensure_changelog_entry(version: str, release_notes: str) -> None:
     text = CHANGELOG.read_text(encoding="utf-8") if CHANGELOG.exists() else "# Changelog\n"
     if re.search(rf"^##\s+v{re.escape(version)}(?:\s|$)", text, re.MULTILINE):
         return
-    heading = (
-        f"## v{version}\n\n"
-        "### Neu\n\n"
-        "- Release über den MediaHub Release-Assistenten erstellt.\n\n"
-        "### Verbessert\n\n"
-        "- Versions-, Build- und GitHub-Release-Ablauf automatisiert.\n\n"
-    )
+    body = release_body_without_commit_section(release_notes)
+    heading = f"## v{version}\n\n{body}\n\n"
     if text.startswith("# Changelog"):
         first_break = text.find("\n")
         text = text[: first_break + 1] + "\n" + heading + text[first_break + 1 :].lstrip("\n")
@@ -80,8 +127,11 @@ def main() -> int:
         raise SystemExit(f"Der Git-Tag {tag} existiert bereits. Bitte eine neue Version verwenden.")
 
     print(f"=== MediaHub {tag} veröffentlichen ===", flush=True)
+    notes_path, release_notes = read_release_notes()
+    commit_message = extract_commit_message(release_notes, version)
+
     set_version(version)
-    ensure_changelog_entry(version)
+    ensure_changelog_entry(version, release_notes)
     run(sys.executable, "mediahub_version.py")
 
     if not args.skip_local_build:
@@ -89,10 +139,14 @@ def main() -> int:
 
     branch = current_branch()
     run("git", "add", "-A")
-    run("git", "commit", "-m", f"MediaHub {tag}")
+    run("git", "commit", "-m", commit_message)
     run("git", "push", "origin", branch)
     run("git", "tag", "-a", tag, "-m", f"MediaHub {tag}")
     run("git", "push", "origin", tag)
+
+    release_notes_target = ROOT / "release" / "RELEASE_NOTES.md"
+    if release_notes_target.exists():
+        print(f"Release-Notizen für GitHub vorbereitet: {release_notes_target}", flush=True)
 
     print("\nFertig: Der Tag wurde zu GitHub übertragen.", flush=True)
     print("GitHub Actions baut nun Setup, Portable-ZIP und Handbücher und erstellt das Release.", flush=True)
