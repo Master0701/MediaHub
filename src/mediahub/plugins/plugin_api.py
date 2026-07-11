@@ -129,6 +129,111 @@ class MediaHubPluginAPI:
             row=database.fetch_one("SELECT COUNT(*) AS count FROM videos")
             return int(row["count"]) if row else 0
         return 0
+
+    def _plain_rows(self, value):
+        result = []
+        for item in list(value or []):
+            if isinstance(item, dict):
+                result.append({str(k): v for k, v in item.items() if isinstance(v, (str, int, float, bool, type(None)))})
+            else:
+                try:
+                    data = dict(item)
+                    result.append({str(k): v for k, v in data.items() if isinstance(v, (str, int, float, bool, type(None)))})
+                except Exception:
+                    pass
+        return result
+
+    def get_dashboard_details(self) -> dict:
+        if self._repository is not None and hasattr(self._repository, "get_dashboard_stats"):
+            return dict(self._repository.get_dashboard_stats() or {})
+        return self.get_status()
+
+    def get_playlists(self) -> list[dict]:
+        repository = self._repository
+        if repository is None:
+            return []
+        database = getattr(repository, "database", None)
+        if database is not None and hasattr(database, "fetch_all"):
+            rows = database.fetch_all("""
+                SELECT p.id, p.playlist_id, p.title, p.display_name, p.url, p.season,
+                       p.enabled, p.video_count, p.new_video_count, p.sort_order,
+                       c.name AS channel_name
+                FROM playlists p LEFT JOIN channels c ON c.id = p.channel_id
+                ORDER BY c.name, p.sort_order, p.id
+                LIMIT 2000
+            """)
+            return self._plain_rows(rows)
+        return []
+
+    def get_library_videos(self) -> list[dict]:
+        repository = self._repository
+        if repository is None:
+            return []
+        if hasattr(repository, "get_recent_library_videos"):
+            return self._plain_rows(repository.get_recent_library_videos("all", 300))
+        if hasattr(repository, "search_library_videos"):
+            return self._plain_rows(repository.search_library_videos("", "all", 300))
+        return []
+
+    def get_jobs(self) -> list[dict]:
+        repository = self._repository
+        if repository is not None and hasattr(repository, "get_jobs"):
+            return self._plain_rows(repository.get_jobs("all", 200))
+        return []
+
+    def get_scheduler_tasks(self) -> list[dict]:
+        repository = self._repository
+        if repository is not None and hasattr(repository, "get_scheduled_tasks"):
+            return self._plain_rows(repository.get_scheduled_tasks(False, 200))
+        return []
+
+    def get_statistics_summary(self) -> dict:
+        repository = self._repository
+        if repository is not None and hasattr(repository, "get_statistics_summary"):
+            value = repository.get_statistics_summary() or {}
+            return dict(value) if isinstance(value, dict) else {}
+        return self.get_dashboard_details()
+
+    def get_installed_plugins(self) -> list[dict]:
+        import json
+        result = []
+        plugins_dir = self.base_dir / "plugins"
+        for manifest in sorted(plugins_dir.glob("*/plugin.json")):
+            try:
+                data = json.loads(manifest.read_text(encoding="utf-8"))
+                result.append({
+                    "id": str(data.get("id") or manifest.parent.name),
+                    "name": str(data.get("name") or data.get("id") or manifest.parent.name),
+                    "version": str(data.get("version") or "0.0.0"),
+                    "description": str(data.get("description") or ""),
+                    "enabled": bool(data.get("enabled", True)),
+                    "installed": True,
+                    "running": False,
+                    "type": str(data.get("type") or "tool"),
+                })
+            except Exception:
+                continue
+        return result
+
+    def get_system_overview(self) -> dict:
+        repository = self._repository
+        schema = ""
+        if repository is not None and hasattr(repository, "get_schema_version"):
+            try:
+                schema = str(repository.get_schema_version())
+            except Exception:
+                schema = ""
+        return {
+            "application": "MediaHub",
+            "version": self.app_version,
+            "schema_version": schema,
+            "plugin_api": "read-only-v1",
+            "network_scope": "local computer",
+            "channels": self.get_channel_count(),
+            "playlists": self.get_playlist_count(),
+            "videos": self.get_video_count(),
+        }
+
     def log(self,message: str,*,level: str="info") -> None:
         if self._logger is None: return
         method=getattr(self._logger,level,None) or getattr(self._logger,"info",None)
