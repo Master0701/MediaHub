@@ -158,7 +158,6 @@ class ReleaseAssistantDialog(QDialog):
             ("tools", "Werkzeuge"),
             ("git", "Git"),
             ("github", "GitHub"),
-            ("release_notes", "Release-Notizen"),
         ]
         for row, (key, label) in enumerate(rows):
             status_layout.addWidget(QLabel(label + ":"), row, 0)
@@ -167,14 +166,6 @@ class ReleaseAssistantDialog(QDialog):
             self.status_labels[key] = value
             status_layout.addWidget(value, row, 1)
         root.addWidget(status_box)
-
-        notes_box = QGroupBox("📝 Release-Notizen")
-        notes_layout = QVBoxLayout(notes_box)
-        self.release_notes_preview = QPlainTextEdit()
-        self.release_notes_preview.setReadOnly(True)
-        self.release_notes_preview.setMaximumHeight(180)
-        notes_layout.addWidget(self.release_notes_preview)
-        root.addWidget(notes_box)
 
         actions_box = QGroupBox("🔨 Aktionen")
         actions = QGridLayout(actions_box)
@@ -268,13 +259,6 @@ class ReleaseAssistantDialog(QDialog):
         self.set_status("github", "✔ GitHub-Remote gefunden" if github_ok else "⚠ GitHub-Remote nicht erkannt")
 
         self.load_release_notes()
-        if self.release_notes_text:
-            self.set_status(
-                "release_notes",
-                f"✔ RELEASE_NOTES_PENDING.md gefunden · Commit: {self.release_commit_message or 'Standardtext'}",
-            )
-        else:
-            self.set_status("release_notes", "⚠ RELEASE_NOTES_PENDING.md fehlt oder ist leer")
 
         self.append_log("Statusprüfung fertig.")
 
@@ -293,12 +277,6 @@ class ReleaseAssistantDialog(QDialog):
         self.release_commit_message = self.extract_commit_message(
             self.release_notes_text
         )
-
-        if hasattr(self, "release_notes_preview"):
-            self.release_notes_preview.setPlainText(
-                self.release_notes_text
-                or "Keine RELEASE_NOTES_PENDING.md gefunden."
-            )
 
     @staticmethod
     def extract_commit_message(text: str) -> str:

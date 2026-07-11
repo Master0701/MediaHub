@@ -27,3 +27,7 @@
 - `release_gate.py`
 - `build.py`
 - `src/mediahub/app_info.py`
+
+## Kompakte Oberfläche
+
+Die zusätzliche Release-Notiz-Anzeige im Hauptfenster wurde entfernt. Die Datei wird weiterhin intern geprüft und verarbeitet.
