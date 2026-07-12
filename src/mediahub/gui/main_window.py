@@ -49,6 +49,8 @@ from src.mediahub.gui.help_center import HelpCenter
 from src.mediahub.gui.assistant_panel import AssistantPanel
 from src.mediahub.gui.plugin_center import PluginCenter
 from src.mediahub.plugins.plugin_api import MediaHubPluginAPI
+from src.mediahub.plugins.web_setup_wizard import WebSetupWizardService
+from src.mediahub.models.channel import Channel
 from src.mediahub.gui.release_gate import open_release_assistant_with_gate
 from src.mediahub.gui.video_selection_dialog import VideoSelectionDialog
 from src.mediahub.gui.setup_wizard import SetupWizard
@@ -262,42 +264,214 @@ class MainWindow(QMainWindow):
             "message": "Aktion wurde an MediaHub uebergeben.",
         }
 
+    def _plugin_action_handlers(self):
+        """Zentrale Zuordnung aller von Plugins auslösbaren MediaHub-Aktionen."""
+        return {
+            "setup_wizard.open": lambda data: self.open_setup_wizard(),
+            "setup_wizard.submit": self._plugin_action_submit_setup_wizard,
+            "setup_wizard.download_selected": self._plugin_action_download_selected_wizard_videos,
+            "plugins.open": lambda data: self.open_plugin_center(),
+            "channels.sync_current": lambda data: self.sync_current_channel(),
+            "channels.sync": self._plugin_action_sync_channel,
+            "downloads.cancel": lambda data: self.cancel_download(),
+            "downloads.select_videos": lambda data: self.select_and_download_videos(),
+            "downloads.select_playlists": lambda data: self.select_playlists_and_download(),
+            "jobs.run_next": lambda data: self.run_next_job(),
+            "scheduler.check": lambda data: self.check_scheduler_now(),
+            "scheduler.toggle": lambda data: self.toggle_scheduler_automatic(),
+        }
+
+
+    def _plugin_action_submit_setup_wizard(self, data: dict):
+        """Speichert den vollständig im Browser ausgefüllten Start-Assistenten."""
+        required = ["name", "url", "work_folder"]
+        missing = [key for key in required if not str(data.get(key) or "").strip()]
+        if missing:
+            raise ValueError("Pflichtfelder fehlen: " + ", ".join(missing))
+
+        channel = Channel(
+            name=str(data.get("name") or "").strip(),
+            url=str(data.get("url") or "").strip(),
+            channel_id=str(data.get("channel_id") or "").strip(),
+            description=str(data.get("description") or "").strip(),
+            profile=str(data.get("profile") or "Plex"),
+            audio_only=bool(data.get("audio_only", False)),
+            filename_template=str(data.get("filename_template") or "{title} S{season:02}E{episode:02}"),
+            work_folder=str(data.get("work_folder") or "").strip(),
+            target_folder=str(data.get("target_folder") or "").strip(),
+            poster=str(data.get("poster") or data.get("avatar") or "").strip(),
+            fanart=str(data.get("fanart") or data.get("banner") or "").strip(),
+            container=str(data.get("container") or "MKV"),
+            resolution=str(data.get("resolution") or "1080p"),
+            audio_format=str(data.get("audio_format") or "M4A"),
+            create_nfo=bool(data.get("create_nfo", True)),
+            create_poster=bool(data.get("create_poster", True)),
+            create_fanart=bool(data.get("create_fanart", True)),
+            clean_work_folder=bool(data.get("clean_work_folder", True)),
+            playlist_folder_mode=str(data.get("playlist_folder_mode") or "Nur Staffeln"),
+            playlist_settings=list(data.get("playlist_settings") or []),
+        )
+        # Zusatzfelder des nativen Assistenten beibehalten.
+        channel.youtube_name = str(data.get("youtube_name") or channel.name)
+        channel.channel_url = str(data.get("channel_url") or channel.url)
+
+        created_index = self.controller.add_channel(channel)
+        try:
+            self.repository.sync_channels(self.controller.get_channels())
+        except Exception:
+            pass
+
+        if bool(data.get("create_job", True)) and self.job_queue_manager is not None:
+            self.job_queue_manager.add_sync_job_for_channel(channel)
+        if bool(data.get("create_scheduler", False)) and self.scheduler_manager is not None:
+            interval = max(1, min(8760, int(data.get("interval_hours") or 24)))
+            self.scheduler_manager.add_sync_task_for_channel(channel, interval_hours=interval)
+
+        self.channel_panel.refresh_list()
+        self.channel_panel.channel_list.setCurrentRow(created_index)
+        self.channel_panel.update_current_info()
+        self.settings_panel.load_channel(self.controller.get_current_channel())
+        self.library_manager.refresh()
+        self.statistics_manager.refresh_dashboard()
+        if self.job_queue_manager is not None:
+            self.job_queue_manager.refresh()
+        if self.scheduler_manager is not None:
+            self.scheduler_manager.refresh()
+        self.log_panel.write(f"WebRemote-Assistent gespeichert: {channel.name}")
+        self.update_status("WebRemote-Assistent abgeschlossen")
+
+        if bool(data.get("start_download_after_sync", False)):
+            self._prepare_webremote_wizard_video_selection(channel)
+        elif bool(data.get("start_sync_now", False)):
+            self.sync_manager.sync_channel(channel)
+            self.channel_panel.update_current_info()
+            self.library_manager.refresh()
+            self.statistics_manager.refresh_dashboard()
+
+    def _get_webremote_wizard_selection(self):
+        state = dict(getattr(self, "_webremote_wizard_selection", {}) or {})
+        state["videos"] = [dict(item) for item in state.get("videos", [])]
+        return state
+
+    def _public_wizard_video(self, video: dict, index: int) -> dict:
+        video_id = str(video.get("video_id") or video.get("id") or "").strip()
+        return {
+            "index": index,
+            "id": video_id or str(index),
+            "video_id": video_id,
+            "title": str(video.get("title") or "Ohne Titel"),
+            "playlist": str(video.get("playlist") or video.get("playlist_original") or ""),
+            "status": str(video.get("status") or "Neu"),
+            "checked": bool(video.get("checked", True)),
+            "is_new": str(video.get("status") or "Neu").lower() in {"neu", "new"},
+            "is_members_only": bool(int(video.get("is_members_only") or 0)),
+            "thumbnail": str(video.get("thumbnail") or video.get("thumbnail_url") or video.get("thumb") or ""),
+            "url": str(video.get("url") or video.get("webpage_url") or ""),
+        }
+
+    def _prepare_webremote_wizard_video_selection(self, channel):
+        self._webremote_wizard_channel = channel
+        self._webremote_wizard_raw_videos = []
+        self._webremote_wizard_selection = {
+            "status": "loading",
+            "message": f"Kanal {channel.name} wird synchronisiert und die Downloadliste wird geladen …",
+            "channel_name": channel.name,
+            "videos": [],
+        }
+        self.log_panel.write(f"WebRemote-Assistent: Sync und Videoauswahl gestartet für {channel.name}")
+        try:
+            result = self.sync_manager.sync_channel(channel)
+            self.channel_panel.update_current_info()
+            self.library_manager.refresh()
+            self.statistics_manager.refresh_dashboard()
+            videos = []
+            try:
+                if self.preview_manager.has_active_playlist_settings(channel):
+                    videos = self.preview_manager.load_active_playlist_videos(channel, limit=None)
+                else:
+                    video_url = self.preview_manager.to_videos_url(channel.url)
+                    videos = self.youtube_service.preview_channel(video_url, limit=None)
+                    videos = self.preview_manager.add_default_playlist_info(channel, videos)
+                videos = self.archive_service.mark_videos(channel, videos)
+                videos = self._filter_bad_wizard_video_rows(videos)
+            except Exception as error:
+                self.log_panel.write(f"WebRemote-Assistent: Live-Videoliste fehlgeschlagen: {error}")
+                videos = []
+            if not videos and self.repository is not None:
+                for row in self.repository.get_new_videos_for_channel(channel.name):
+                    if int(row.get("is_members_only", 0) or 0):
+                        continue
+                    video_id = str(row.get("video_id", "") or "").strip()
+                    videos.append({
+                        "id": video_id, "video_id": video_id,
+                        "url": row.get("url") or (f"https://www.youtube.com/watch?v={video_id}" if video_id else ""),
+                        "title": row.get("title", "Ohne Titel"),
+                        "playlist": row.get("playlists", "") or channel.name,
+                        "playlist_original": row.get("playlists", "") or channel.name,
+                        "status": "Neu", "checked": True,
+                        "thumbnail": row.get("thumbnail") or row.get("thumbnail_url") or "",
+                    })
+                videos = self._filter_bad_wizard_video_rows(videos)
+            videos = self._apply_library_status_to_videos(videos)
+            self._webremote_wizard_raw_videos = list(videos or [])
+            public = [self._public_wizard_video(video, index) for index, video in enumerate(self._webremote_wizard_raw_videos)]
+            self._webremote_wizard_selection = {
+                "status": "ready" if public else "empty",
+                "message": f"{len(public)} Video(s) zur Auswahl geladen." if public else "Keine downloadbaren Videos gefunden.",
+                "channel_name": channel.name,
+                "sync_ok": bool((result or {}).get("ok", True)),
+                "videos": public,
+            }
+            self.log_panel.write(self._webremote_wizard_selection["message"])
+        except Exception as error:
+            self._webremote_wizard_selection = {"status": "error", "message": str(error), "channel_name": channel.name, "videos": []}
+            self.log_panel.write(f"WebRemote-Assistent fehlgeschlagen: {error}")
+
+    def _plugin_action_download_selected_wizard_videos(self, data: dict):
+        wanted = {str(value) for value in list(data.get("video_ids") or []) if str(value).strip()}
+        if not wanted:
+            raise ValueError("Keine Videos ausgewählt.")
+        channel = getattr(self, "_webremote_wizard_channel", None)
+        raw = list(getattr(self, "_webremote_wizard_raw_videos", []) or [])
+        if channel is None or not raw:
+            raise RuntimeError("Es ist keine vorbereitete WebRemote-Videoauswahl vorhanden.")
+        selected = []
+        for index, video in enumerate(raw):
+            video_id = str(video.get("video_id") or video.get("id") or index)
+            if video_id in wanted or str(index) in wanted:
+                selected.append(video)
+        if not selected:
+            raise ValueError("Die ausgewählten Videos wurden nicht gefunden.")
+        self.start_download_queue(channel, selected)
+        self._webremote_wizard_selection = {
+            "status": "started",
+            "message": f"Download mit {len(selected)} Video(s) gestartet.",
+            "channel_name": channel.name,
+            "videos": [self._public_wizard_video(video, index) for index, video in enumerate(selected)],
+        }
+        self.log_panel.write(self._webremote_wizard_selection["message"])
+
+    def _plugin_action_sync_channel(self, data: dict):
+        channels = list(self.controller.get_channels() or [])
+        index = int(data.get("channel_index", data.get("index", -1)))
+        if index < 0 or index >= len(channels):
+            raise ValueError("Der ausgewaehlte Kanal wurde nicht gefunden.")
+        channel = channels[index]
+        if hasattr(self.controller, "set_current_channel"):
+            self.controller.set_current_channel(channel)
+        self.sync_manager.sync_channel(channel)
+        self.channel_panel.update_current_info()
+        self.library_manager.refresh()
+        self.statistics_manager.refresh_dashboard()
+
     @Slot(str, object)
     def _execute_plugin_action(self, action: str, payload: object):
         data = dict(payload or {}) if isinstance(payload, dict) else {}
         try:
-            if action == "assistant.open":
-                self.open_assistant()
-            elif action == "plugins.open":
-                self.open_plugin_center()
-            elif action == "channels.sync_current":
-                self.sync_current_channel()
-            elif action == "channels.sync":
-                channels = list(self.controller.get_channels() or [])
-                index = int(data.get("channel_index", data.get("index", -1)))
-                if index < 0 or index >= len(channels):
-                    raise ValueError("Der ausgewaehlte Kanal wurde nicht gefunden.")
-                channel = channels[index]
-                if hasattr(self.controller, "set_current_channel"):
-                    self.controller.set_current_channel(channel)
-                self.sync_manager.sync_channel(channel)
-                self.channel_panel.update_current_info()
-                self.library_manager.refresh()
-                self.statistics_manager.refresh_dashboard()
-            elif action == "downloads.cancel":
-                self.cancel_download()
-            elif action == "downloads.select_videos":
-                self.select_and_download_videos()
-            elif action == "downloads.select_playlists":
-                self.select_playlists_and_download()
-            elif action == "jobs.run_next":
-                self.run_next_job()
-            elif action == "scheduler.check":
-                self.check_scheduler_now()
-            elif action == "scheduler.toggle":
-                self.toggle_scheduler_automatic()
-            else:
+            handler = self._plugin_action_handlers().get(str(action))
+            if handler is None:
                 raise ValueError(f"Nicht unterstuetzte Plugin-Aktion: {action}")
+            handler(data)
             if self.log_panel is not None:
                 self.log_panel.write(f"WebRemote-Aktion ausgefuehrt: {action}")
         except Exception as error:
@@ -324,6 +498,15 @@ class MainWindow(QMainWindow):
         self.recovery_center = RecoveryCenter()
         self.help_center = HelpCenter(base_dir=self.base_dir)
         self.assistant_panel = AssistantPanel()
+        self._webremote_wizard_selection = {"status": "idle", "message": "Noch keine Videoauswahl vorbereitet.", "channel_name": "", "videos": []}
+        self._webremote_wizard_raw_videos = []
+        self._webremote_wizard_channel = None
+
+        web_setup_wizard = WebSetupWizardService(
+            base_dir=self.base_dir,
+            youtube_service=self.youtube_service,
+            playlist_service=self.playlist_service,
+        )
         plugin_api = MediaHubPluginAPI(
             base_dir=self.base_dir,
             app_version=APP_VERSION,
@@ -337,6 +520,8 @@ class MainWindow(QMainWindow):
                 else {"active": False, "queue": []}
             ),
             action_provider=self._queue_plugin_action,
+            wizard_provider=web_setup_wizard,
+            wizard_selection_provider=self._get_webremote_wizard_selection,
         )
         self.plugin_center = PluginCenter(
             base_dir=self.base_dir,

@@ -27,7 +27,22 @@ class PluginInfo:
 
 class MediaHubPluginAPI:
     """Kontrollierte Schnittstelle für externe MediaHub-Plugins."""
-    def __init__(self, *, base_dir: Path, app_version: str, repository: Any = None, controller: Any = None, logger: Any = None, status_provider: Callable[[], dict] | None = None, download_status_provider: Callable[[], dict] | None = None, action_provider: Callable[[str, dict], dict] | None = None):
+
+    ACTION_REGISTRY = {
+        "setup_wizard.open": {"provider_action": "setup_wizard.open", "permission": "actions.setup_wizard.open"},
+        "setup_wizard.submit": {"provider_action": "setup_wizard.submit", "permission": "actions.setup_wizard.control"},
+        "setup_wizard.download_selected": {"provider_action": "setup_wizard.download_selected", "permission": "actions.downloads.control"},
+        "plugins.open": {"provider_action": "plugins.open", "permission": "actions.plugins.open"},
+        "channels.sync": {"provider_action": "channels.sync", "permission": "actions.channels.sync"},
+        "channels.sync_current": {"provider_action": "channels.sync_current", "permission": "actions.channels.sync"},
+        "downloads.cancel": {"provider_action": "downloads.cancel", "permission": "actions.downloads.control"},
+        "downloads.select_videos": {"provider_action": "downloads.select_videos", "permission": "actions.downloads.control"},
+        "downloads.select_playlists": {"provider_action": "downloads.select_playlists", "permission": "actions.downloads.control"},
+        "jobs.run_next": {"provider_action": "jobs.run_next", "permission": "actions.jobs.control"},
+        "scheduler.check": {"provider_action": "scheduler.check", "permission": "actions.scheduler.control"},
+        "scheduler.toggle": {"provider_action": "scheduler.toggle", "permission": "actions.scheduler.control"},
+    }
+    def __init__(self, *, base_dir: Path, app_version: str, repository: Any = None, controller: Any = None, logger: Any = None, status_provider: Callable[[], dict] | None = None, download_status_provider: Callable[[], dict] | None = None, action_provider: Callable[[str, dict], dict] | None = None, wizard_provider: Any = None, wizard_selection_provider: Callable[[], dict] | None = None):
         self.base_dir = Path(base_dir)
         self.app_version = str(app_version)
         self._repository = repository
@@ -36,6 +51,8 @@ class MediaHubPluginAPI:
         self._status_provider = status_provider
         self._download_status_provider = download_status_provider
         self._action_provider = action_provider
+        self._wizard_provider = wizard_provider
+        self._wizard_selection_provider = wizard_selection_provider
 
     def get_status(self) -> dict:
         result = {"application":"MediaHub","version":self.app_version,"connected":True,"channels":self.get_channel_count(),"playlists":self.get_playlist_count(),"videos":self.get_video_count()}
@@ -235,30 +252,61 @@ class MediaHubPluginAPI:
             "videos": self.get_video_count(),
         }
 
+
+    def get_setup_wizard_options(self) -> dict:
+        if self._wizard_provider is None:
+            raise RuntimeError("Web-Assistent ist in MediaHub nicht verfügbar.")
+        return dict(self._wizard_provider.get_options() or {})
+
+    def analyze_setup_wizard_source(self, payload: dict | None = None) -> dict:
+        if self._wizard_provider is None:
+            raise RuntimeError("Web-Assistent ist in MediaHub nicht verfügbar.")
+        return dict(self._wizard_provider.analyze_source(dict(payload or {})) or {})
+
+    def load_setup_wizard_playlists(self, payload: dict | None = None) -> list[dict]:
+        if self._wizard_provider is None:
+            raise RuntimeError("Web-Assistent ist in MediaHub nicht verfügbar.")
+        return list(self._wizard_provider.load_playlists(dict(payload or {})) or [])
+
+    def get_setup_wizard_video_selection(self) -> dict:
+        if self._wizard_selection_provider is None:
+            return {"status": "idle", "message": "Noch keine Videoauswahl vorbereitet.", "videos": []}
+        value = self._wizard_selection_provider() or {}
+        return dict(value) if isinstance(value, dict) else {"status": "error", "message": "Ungültiger Auswahlstatus.", "videos": []}
+
+    def get_available_actions(self) -> list[dict]:
+        """Liefert die zentral registrierten, freigegebenen Aktionen."""
+        return [
+            {"action": action, **definition}
+            for action, definition in self.ACTION_REGISTRY.items()
+        ]
+
     def execute_action(self, action: str, payload: dict | None = None) -> dict:
-        """Fuehrt nur explizit freigegebene MediaHub-Aktionen aus."""
-        allowed = {
-            "assistant.open",
-            "plugins.open",
-            "channels.sync",
-            "channels.sync_current",
-            "downloads.cancel",
-            "downloads.select_videos",
-            "downloads.select_playlists",
-            "jobs.run_next",
-            "scheduler.check",
-            "scheduler.toggle",
-        }
+        """Fuehrt ausschließlich zentral registrierte MediaHub-Aktionen aus."""
         action = str(action or "").strip()
-        if action not in allowed:
-            return {"ok": False, "accepted": False, "message": "Aktion ist nicht freigegeben."}
+        definition = self.ACTION_REGISTRY.get(action)
+        if definition is None:
+            return {
+                "ok": False,
+                "accepted": False,
+                "message": f"Aktion ist nicht freigegeben: {action or '<leer>'}",
+            }
         if self._action_provider is None:
-            return {"ok": False, "accepted": False, "message": "MediaHub-Aktionsschnittstelle ist nicht verfuegbar."}
+            return {
+                "ok": False,
+                "accepted": False,
+                "message": "MediaHub-Aktionsschnittstelle ist nicht verfuegbar.",
+            }
+        provider_action = str(definition.get("provider_action") or action)
         try:
-            result = self._action_provider(action, dict(payload or {}))
+            result = self._action_provider(provider_action, dict(payload or {}))
             if isinstance(result, dict):
                 return result
-            return {"ok": bool(result), "accepted": bool(result), "message": "Aktion wurde angenommen."}
+            return {
+                "ok": bool(result),
+                "accepted": bool(result),
+                "message": "Aktion wurde angenommen.",
+            }
         except Exception as error:
             self.log(f"Plugin-Aktion {action} fehlgeschlagen: {error}", level="error")
             return {"ok": False, "accepted": False, "message": str(error)}
