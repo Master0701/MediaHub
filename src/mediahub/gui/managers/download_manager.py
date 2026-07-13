@@ -112,7 +112,7 @@ class DownloadManager:
 
         return True
 
-    def start_download_queue(self, channel, videos):
+    def start_download_queue(self, channel, videos, *, show_dialog=True):
         if not self.can_start_download():
             return
 
@@ -125,7 +125,8 @@ class DownloadManager:
         download_items = self.build_download_items(channel, videos)
 
         self._load_queue_items(download_items)
-        self._auto_open_queue_dialog()
+        if show_dialog:
+            self._auto_open_queue_dialog()
 
         self.update_status("Download-Warteschlange läuft")
         self.log_panel.set_status(f"Warteschlange: {len(download_items)} Videos")

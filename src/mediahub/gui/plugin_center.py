@@ -11,6 +11,7 @@ from src.mediahub.gui.ui_standards import PANEL_MARGIN, PANEL_SPACING, configure
 from src.mediahub.plugins.plugin_api import MediaHubPluginAPI
 from src.mediahub.plugins.plugin_loader import PluginLoader
 from src.mediahub.plugins.plugin_runtime import PluginRuntime
+from src.mediahub.gui.plugin_settings_dialog import WebPluginSettingsDialog
 
 
 class PluginCenter(QWidget):
@@ -56,6 +57,7 @@ class PluginCenter(QWidget):
         self.btn_start = configure_button(QPushButton("Plugin starten"), "Ausgewähltes Plugin starten.")
         self.btn_stop = configure_button(QPushButton("Plugin stoppen"), "Ausgewähltes Plugin stoppen.")
         self.btn_open = configure_button(QPushButton("Weboberfläche öffnen"), "Lokale Plugin-Webseite öffnen.")
+        self.btn_settings = configure_button(QPushButton("Plugin-Einstellungen"), "Einstellungen des ausgewählten Plugins öffnen.")
         self.btn_remove = configure_button(QPushButton("Plugin entfernen"), "Ausgewähltes Plugin deinstallieren.")
         self.btn_folder = configure_button(QPushButton("Plugin-Ordner öffnen"), "Lokalen Plugin-Ordner öffnen.")
 
@@ -64,11 +66,12 @@ class PluginCenter(QWidget):
         self.btn_start.clicked.connect(self.start_selected_plugin)
         self.btn_stop.clicked.connect(self.stop_selected_plugin)
         self.btn_open.clicked.connect(self.open_selected_plugin)
+        self.btn_settings.clicked.connect(self.open_selected_plugin_settings)
         self.btn_remove.clicked.connect(self.remove_selected_plugin)
         self.btn_folder.clicked.connect(self.open_plugins_folder)
 
         for button in (self.btn_refresh, self.btn_install, self.btn_start, self.btn_stop,
-                       self.btn_open, self.btn_remove, self.btn_folder):
+                       self.btn_open, self.btn_settings, self.btn_remove, self.btn_folder):
             buttons.addWidget(button)
         buttons.addStretch(1)
         layout.addLayout(buttons)
@@ -140,9 +143,27 @@ class PluginCenter(QWidget):
             QMessageBox.information(self, "Plugin", "Kein Plugin ausgewählt.")
             return
         if plugin.plugin_type == "web" and self.runtime and self.runtime.is_running(plugin.plugin_id):
-            QDesktopServices.openUrl(QUrl("http://127.0.0.1:8765/"))
+            instance = self.runtime.get_instance(plugin.plugin_id)
+            info = instance.get_plugin_settings() if instance and hasattr(instance, "get_plugin_settings") else {}
+            QDesktopServices.openUrl(QUrl(str(info.get("active_url") or "http://127.0.0.1:8765/")))
             return
         QMessageBox.information(self, "Plugin", "Bitte das Web-Plugin zuerst starten.")
+
+    def open_selected_plugin_settings(self):
+        plugin = self.selected_plugin()
+        if plugin is None or self.runtime is None:
+            QMessageBox.information(self, "Plugin", "Kein Plugin ausgewählt.")
+            return
+        instance = self.runtime.get_instance(plugin.plugin_id)
+        if instance is None:
+            QMessageBox.information(self, "Plugin", "Bitte das Plugin zuerst starten.")
+            return
+        if not hasattr(instance, "get_plugin_settings") or not hasattr(instance, "update_plugin_settings"):
+            QMessageBox.information(self, "Plugin", "Dieses Plugin besitzt keine eigenen Einstellungen.")
+            return
+        dialog = WebPluginSettingsDialog(instance, self)
+        dialog.exec()
+        self.show_details(self.plugin_list.currentRow())
 
     def install_plugin(self):
         file_path, _ = QFileDialog.getOpenFileName(self, "Plugin installieren", str(Path.home()), "MediaHub Plugins (*.mhplugin)")

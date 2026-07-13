@@ -26,6 +26,10 @@ class PluginRuntime:
     def is_running(self, plugin_id: str) -> bool:
         return plugin_id in self._running
 
+    def get_instance(self, plugin_id: str):
+        running = self._running.get(plugin_id)
+        return running.instance if running is not None else None
+
     def start(self, plugin: PluginInfo) -> tuple[bool, str]:
         if self.is_running(plugin.plugin_id):
             return True, f"Plugin läuft bereits: {plugin.name}"

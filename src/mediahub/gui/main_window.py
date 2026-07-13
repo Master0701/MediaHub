@@ -442,7 +442,7 @@ class MainWindow(QMainWindow):
                 selected.append(video)
         if not selected:
             raise ValueError("Die ausgewählten Videos wurden nicht gefunden.")
-        self.start_download_queue(channel, selected)
+        self.start_download_queue(channel, selected, show_dialog=False)
         self._webremote_wizard_selection = {
             "status": "started",
             "message": f"Download mit {len(selected)} Video(s) gestartet.",
@@ -1340,11 +1340,11 @@ class MainWindow(QMainWindow):
     def cancel_download(self):
         self.download_manager.cancel_download()
 
-    def start_download_queue(self, channel, videos):
+    def start_download_queue(self, channel, videos, *, show_dialog=True):
         if self.job_queue_manager is not None:
             self.job_queue_manager.add_download_job_for_channel(channel, len(videos or []))
         self._select_nav_page("Downloads")
-        self.download_manager.start_download_queue(channel, videos)
+        self.download_manager.start_download_queue(channel, videos, show_dialog=show_dialog)
         self.channel_panel.update_current_info()
         self.library_manager.refresh()
         self.statistics_manager.refresh_dashboard()
