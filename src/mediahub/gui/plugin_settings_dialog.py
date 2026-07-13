@@ -4,7 +4,7 @@ from PySide6.QtCore import Qt
 from PySide6.QtGui import QColor, QImage, QPixmap
 from PySide6.QtWidgets import (
     QCheckBox, QComboBox, QDialog, QFormLayout, QHBoxLayout, QLabel, QLineEdit,
-    QListWidget, QListWidgetItem, QMessageBox, QPushButton, QSpinBox, QVBoxLayout,
+    QListWidget, QListWidgetItem, QMessageBox, QPushButton, QSpinBox, QVBoxLayout, QWidget,
 )
 
 
@@ -12,12 +12,12 @@ class WebPluginSettingsDialog(QDialog):
     def __init__(self, plugin_instance, parent=None):
         super().__init__(parent)
         self.plugin = plugin_instance
-        self.setWindowTitle("WebRemote-Einstellungen")
+        self.setWindowTitle("Plugin-Einstellungen")
         self.setMinimumWidth(620)
         self.data = dict(self.plugin.get_plugin_settings() or {})
 
         layout = QVBoxLayout(self)
-        intro = QLabel("Diese Einstellungen gelten für die gemeinsame Web-Runtime und später auch für das Mobile Dashboard.")
+        intro = QLabel("Die angezeigten Bereiche gehören ausschließlich zum ausgewählten Plugin. Gemeinsame Netzwerkwerte werden von beiden Web-Plugins verwendet.")
         intro.setWordWrap(True)
         layout.addWidget(intro)
 
@@ -31,12 +31,14 @@ class WebPluginSettingsDialog(QDialog):
         self.port.setRange(1024, 65535)
         self.port.setValue(int(self.data.get("port", 8765)))
         self.device_name = QLineEdit(str(self.data.get("device_name") or "MediaHub-PC"))
+        self.has_pairing = any(key in self.data for key in ("pairing_code", "pairing_qr_matrix", "paired_devices"))
         self.pairing_required = QCheckBox("Nur gekoppelte Geräte zulassen")
         self.pairing_required.setChecked(bool(self.data.get("pairing_required", True)))
         form.addRow("Zugriff:", self.mode)
         form.addRow("Port:", self.port)
         form.addRow("Gerätename:", self.device_name)
-        form.addRow("Sicherheit:", self.pairing_required)
+        if self.has_pairing:
+            form.addRow("Sicherheit:", self.pairing_required)
         layout.addLayout(form)
 
         self.address = QLabel()
@@ -44,7 +46,8 @@ class WebPluginSettingsDialog(QDialog):
         self.address.setTextInteractionFlags(Qt.TextInteractionFlag.TextSelectableByMouse)
         layout.addWidget(self.address)
 
-        pairing_row = QHBoxLayout()
+        self.pairing_widget = QWidget()
+        pairing_row = QHBoxLayout(self.pairing_widget)
         qr_box = QVBoxLayout()
         qr_title = QLabel("QR-Code zur Kopplung")
         qr_title.setStyleSheet("font-weight: 700;")
@@ -79,7 +82,8 @@ class WebPluginSettingsDialog(QDialog):
         devices_box.addLayout(device_buttons)
         devices_box.addWidget(rotate)
         pairing_row.addLayout(devices_box, 1)
-        layout.addLayout(pairing_row)
+        self.pairing_widget.setVisible(self.has_pairing)
+        layout.addWidget(self.pairing_widget)
 
         note = QLabel("Die Freigabe gilt nur im lokalen Netzwerk. MediaHub richtet keine Internetfreigabe und keine Router-Portfreigabe ein.")
         note.setWordWrap(True)
@@ -135,12 +139,14 @@ class WebPluginSettingsDialog(QDialog):
         self.qr_label.setPixmap(QPixmap.fromImage(image).scaled(220, 220, Qt.AspectRatioMode.KeepAspectRatio, Qt.TransformationMode.FastTransformation))
 
     def _current_payload(self):
-        return {
+        payload = {
             "network_mode": self.mode.currentData(),
             "port": self.port.value(),
             "device_name": self.device_name.text().strip(),
-            "pairing_required": self.pairing_required.isChecked(),
         }
+        if self.has_pairing:
+            payload["pairing_required"] = self.pairing_required.isChecked()
+        return payload
 
     def _apply(self, extra=None, show_message=False):
         payload = self._current_payload()
