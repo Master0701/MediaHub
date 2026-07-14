@@ -1,6 +1,6 @@
 from pathlib import Path
 
-from PySide6.QtCore import Qt, QUrl
+from PySide6.QtCore import Qt, QUrl, Signal
 from PySide6.QtGui import QDesktopServices
 from PySide6.QtWidgets import (
     QFileDialog, QHBoxLayout, QLabel, QListWidget, QListWidgetItem,
@@ -15,12 +15,15 @@ from src.mediahub.gui.plugin_settings_dialog import WebPluginSettingsDialog
 
 
 class PluginCenter(QWidget):
+    plugins_changed = Signal()
+
     def __init__(self, base_dir: Path, parent=None, *, mediahub_api: MediaHubPluginAPI | None = None):
         super().__init__(parent)
         self.base_dir = Path(base_dir)
         self.loader = PluginLoader(self.base_dir)
         self.runtime = PluginRuntime(mediahub_api) if mediahub_api is not None else None
         self.plugins = []
+        self._last_gui_signature = ()
         self._build_ui()
         self.refresh()
 
@@ -96,6 +99,96 @@ class PluginCenter(QWidget):
         else:
             self.details.setPlainText("Keine Plugins gefunden.\n\nInstalliere eine .mhplugin-Datei.")
         self.status.setText(f"{len(self.plugins)} Plugin(s) gefunden")
+        gui_signature = tuple(
+            (plugin.plugin_id, plugin.version, plugin.enabled, plugin.has_gui, plugin.ui_title, plugin.ui_order)
+            for plugin in self.gui_plugins()
+        )
+        if gui_signature != self._last_gui_signature:
+            self._last_gui_signature = gui_signature
+            self.plugins_changed.emit()
+
+
+    def get_running_instance(self, plugin_id):
+        if self.runtime is None:
+            return None
+        return self.runtime.get_instance(str(plugin_id))
+
+    def get_plugin(self, plugin_id):
+        plugin_id = str(plugin_id)
+        return next((plugin for plugin in self.plugins if plugin.plugin_id == plugin_id), None)
+
+    def gui_plugins(self):
+        return sorted(
+            [plugin for plugin in self.plugins if plugin.enabled and plugin.has_gui],
+            key=lambda plugin: (plugin.ui_order, (plugin.ui_title or plugin.name).lower()),
+        )
+
+    def is_running(self, plugin_id):
+        return self.runtime is not None and self.runtime.is_running(str(plugin_id))
+
+    def start_plugin(self, plugin_id):
+        plugin = self.get_plugin(plugin_id)
+        if plugin is None or self.runtime is None:
+            return False, "Plugin wurde nicht gefunden."
+        ok, message = self.runtime.start(plugin)
+        self.refresh()
+        return ok, message
+
+    def stop_plugin(self, plugin_id):
+        if self.runtime is None:
+            return False, "Plugin-Laufzeit ist nicht verfügbar."
+        ok, message = self.runtime.stop(str(plugin_id))
+        self.refresh()
+        return ok, message
+
+    def _plugin_gui_url(self, plugin):
+        if self.runtime is None:
+            return ""
+        instance = self.runtime.get_instance(plugin.plugin_id)
+        if instance is None:
+            return ""
+        info = instance.get_plugin_settings() if hasattr(instance, "get_plugin_settings") else {}
+        if not isinstance(info, dict):
+            info = {}
+        url = str(info.get("url") or info.get("active_url") or "").strip()
+        if url and plugin.ui_route and url.rstrip("/").endswith(plugin.ui_route.rstrip("/")) is False:
+            url = url.rstrip("/") + "/" + plugin.ui_route.lstrip("/")
+        return url
+
+    def ensure_plugin_gui(self, plugin_id):
+        plugin = self.get_plugin(plugin_id)
+        if plugin is None:
+            return False, "Plugin wurde nicht gefunden.", ""
+        if not plugin.enabled or not plugin.has_gui:
+            return False, "Dieses Plugin besitzt keine aktivierte Oberfläche.", ""
+        if self.runtime is None:
+            return False, "Plugin-Laufzeit ist nicht verfügbar.", ""
+        if not self.runtime.is_running(plugin.plugin_id):
+            ok, message = self.runtime.start(plugin)
+            if not ok:
+                return False, message, ""
+        url = self._plugin_gui_url(plugin)
+        self.refresh()
+        if plugin.ui_type == "web" and not url:
+            return False, "Die lokale Webadresse des Plugins konnte nicht ermittelt werden.", ""
+        return True, f"Oberfläche geöffnet: {plugin.ui_title or plugin.name}", url
+
+    def open_plugin_settings(self, plugin_id):
+        plugin = self.get_plugin(plugin_id)
+        if plugin is None or self.runtime is None:
+            return False, "Plugin wurde nicht gefunden."
+        instance = self.runtime.get_instance(plugin.plugin_id)
+        if instance is None:
+            return False, "Bitte das Plugin zuerst starten."
+        if not hasattr(instance, "get_plugin_settings") or not hasattr(instance, "update_plugin_settings"):
+            return False, "Dieses Plugin besitzt keine eigenen Einstellungen."
+        WebPluginSettingsDialog(instance, self).exec()
+        return True, "Plugin-Einstellungen geöffnet."
+
+    def open_in_navigation(self):
+        window = self.window()
+        if hasattr(window, "open_plugin_center"):
+            window.open_plugin_center()
 
     def selected_plugin(self):
         row = self.plugin_list.currentRow()
@@ -142,12 +235,12 @@ class PluginCenter(QWidget):
         if plugin is None:
             QMessageBox.information(self, "Plugin", "Kein Plugin ausgewählt.")
             return
-        if plugin.plugin_type == "web" and self.runtime and self.runtime.is_running(plugin.plugin_id):
-            instance = self.runtime.get_instance(plugin.plugin_id)
-            info = instance.get_plugin_settings() if instance and hasattr(instance, "get_plugin_settings") else {}
-            QDesktopServices.openUrl(QUrl(str(info.get("active_url") or "http://127.0.0.1:8765/")))
+        ok, message, url = self.ensure_plugin_gui(plugin.plugin_id)
+        if not ok:
+            QMessageBox.information(self, "Plugin", message)
             return
-        QMessageBox.information(self, "Plugin", "Bitte das Web-Plugin zuerst starten.")
+        if url:
+            QDesktopServices.openUrl(QUrl(url))
 
     def open_selected_plugin_settings(self):
         plugin = self.selected_plugin()

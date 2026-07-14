@@ -48,6 +48,7 @@ from src.mediahub.gui.recovery_center import RecoveryCenter
 from src.mediahub.gui.help_center import HelpCenter
 from src.mediahub.gui.assistant_panel import AssistantPanel
 from src.mediahub.gui.plugin_center import PluginCenter
+from src.mediahub.gui.plugin_gui_panel import PluginGuiPanel
 from src.mediahub.plugins.plugin_api import MediaHubPluginAPI
 from src.mediahub.plugins.web_setup_wizard import WebSetupWizardService
 from src.mediahub.models.channel import Channel
@@ -111,6 +112,8 @@ class MainWindow(QMainWindow):
         self.help_center = None
         self.assistant_panel = None
         self.plugin_center = None
+        self._plugin_gui_header_item = None
+        self._plugin_gui_pages = {}
 
         self.base_dir = Path.cwd()
         self.tool_service = ToolService(self.base_dir)
@@ -204,9 +207,6 @@ class MainWindow(QMainWindow):
         tools_menu.addAction("Download-Warteschlange", self.open_download_queue)
         tools_menu.addAction("Download abbrechen", self.cancel_download)
 
-
-        extras_menu = menu.addMenu("Extras")
-        extras_menu.addAction("Release-Assistent", self.open_release_assistant)
 
         extras_menu = menu.addMenu("Extras")
         extras_menu.addAction("Release-Assistent", lambda: open_release_assistant_with_gate(self, self.base_dir, APP_VERSION))
@@ -528,6 +528,7 @@ class MainWindow(QMainWindow):
             parent=self,
             mediahub_api=plugin_api,
         )
+        self.plugin_center.plugins_changed.connect(self.refresh_plugin_gui_navigation)
 
         self.channel_panel.channel_selected_callback = self.settings_panel.load_channel
         self.settings_panel.change_callback = self.on_settings_changed
@@ -585,6 +586,7 @@ class MainWindow(QMainWindow):
         self._add_page("⚙ Einstellungen", self._build_settings_page())
         self._add_page("📄 Log", self.log_panel)
         self._add_page("❓ Hilfe", self.help_center)
+        self.refresh_plugin_gui_navigation()
 
         self.nav_list.currentRowChanged.connect(self._navigation_changed)
         self.nav_list.setCurrentRow(0)
@@ -597,18 +599,78 @@ class MainWindow(QMainWindow):
         main_layout.addWidget(self.page_stack, 1)
         self.setCentralWidget(main_widget)
 
-    def _add_page(self, title, widget):
+    def _add_page(self, title, widget, *, plugin_gui_id=""):
         item = QListWidgetItem(title)
         item.setSizeHint(item.sizeHint())
+        page_index = self.page_stack.addWidget(widget)
+        item.setData(Qt.ItemDataRole.UserRole, page_index)
+        item.setData(Qt.ItemDataRole.UserRole + 1, str(plugin_gui_id or ""))
         self.nav_list.addItem(item)
-        self.page_stack.addWidget(widget)
         self.pages[title] = widget
+        return item
+
+    def refresh_plugin_gui_navigation(self):
+        """Erzeugt den zweiten Plugin-Bereich nur für aktive GUI-Plugins."""
+        if not hasattr(self, "nav_list") or self.plugin_center is None:
+            return
+
+        current_plugin_id = ""
+        current_item = self.nav_list.currentItem()
+        if current_item is not None:
+            current_plugin_id = str(current_item.data(Qt.ItemDataRole.UserRole + 1) or "")
+
+        for row in range(self.nav_list.count() - 1, -1, -1):
+            item = self.nav_list.item(row)
+            if item.data(Qt.ItemDataRole.UserRole + 2) == "plugin_gui":
+                self.nav_list.takeItem(row)
+
+        for panel in list(self._plugin_gui_pages.values()):
+            self.page_stack.removeWidget(panel)
+            panel.deleteLater()
+        self._plugin_gui_pages.clear()
+        self._plugin_gui_header_item = None
+
+        gui_plugins = self.plugin_center.gui_plugins()
+        if not gui_plugins:
+            return
+
+        header = QListWidgetItem("PLUGIN-OBERFLÄCHEN")
+        header.setFlags(Qt.ItemFlag.NoItemFlags)
+        header.setData(Qt.ItemDataRole.UserRole + 2, "plugin_gui")
+        header.setToolTip("Oberflächen installierter und aktivierter Plugins.")
+        self.nav_list.addItem(header)
+        self._plugin_gui_header_item = header
+
+        row_to_restore = -1
+        for plugin in gui_plugins:
+            panel = PluginGuiPanel(plugin.plugin_id, self.plugin_center, self)
+            panel.setMinimumSize(0, 0)
+            panel.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Expanding)
+            title = f"{plugin.ui_icon or '🧩'} {plugin.ui_title or plugin.name}"
+            item = self._add_page(title, panel, plugin_gui_id=plugin.plugin_id)
+            item.setData(Qt.ItemDataRole.UserRole + 2, "plugin_gui")
+            item.setToolTip(f"Plugin-Oberfläche öffnen: {plugin.ui_title or plugin.name}")
+            self._plugin_gui_pages[plugin.plugin_id] = panel
+            if plugin.plugin_id == current_plugin_id:
+                row_to_restore = self.nav_list.row(item)
+
+        if row_to_restore >= 0:
+            self.nav_list.setCurrentRow(row_to_restore)
 
     def _navigation_changed(self, index):
         if index < 0:
             return
-        self.page_stack.setCurrentIndex(index)
-        title = self.nav_list.item(index).text()
+        item = self.nav_list.item(index)
+        if item is None:
+            return
+        page_index = item.data(Qt.ItemDataRole.UserRole)
+        if page_index is None:
+            return
+        self.page_stack.setCurrentIndex(int(page_index))
+        title = item.text()
+        plugin_gui_id = str(item.data(Qt.ItemDataRole.UserRole + 1) or "")
+        if plugin_gui_id and plugin_gui_id in self._plugin_gui_pages:
+            self._plugin_gui_pages[plugin_gui_id].activate()
         if "Dashboard" in title and self.statistics_manager is not None:
             self.statistics_manager.refresh_dashboard()
         elif "Bibliothek" in title and self.library_manager is not None:

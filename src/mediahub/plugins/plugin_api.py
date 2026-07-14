@@ -23,6 +23,13 @@ class PluginInfo:
     class_name: str = ""
     minimum_mediahub_version: str = ""
     permissions: list[str] = field(default_factory=list)
+    has_gui: bool = False
+    ui_type: str = ""
+    ui_title: str = ""
+    ui_route: str = ""
+    ui_icon: str = ""
+    ui_order: int = 100
+    has_settings: bool = False
 
 
 class MediaHubPluginAPI:

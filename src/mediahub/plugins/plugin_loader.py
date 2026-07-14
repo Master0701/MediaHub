@@ -36,6 +36,16 @@ class PluginLoader:
         if not isinstance(permissions, list):
             permissions = []
 
+        ui = data.get("ui") or {}
+        if not isinstance(ui, dict):
+            ui = {}
+        has_gui = bool(ui.get("enabled", data.get("has_gui", data.get("type") == "web")))
+        ui_type = str(ui.get("type") or ("web" if data.get("type") == "web" else "native"))
+        try:
+            ui_order = int(ui.get("order", 100))
+        except (TypeError, ValueError):
+            ui_order = 100
+
         return PluginInfo(
             plugin_id=plugin_id,
             name=str(data.get("name") or plugin_id),
@@ -51,6 +61,13 @@ class PluginLoader:
             class_name=str(data.get("class_name") or ""),
             minimum_mediahub_version=str(data.get("minimum_mediahub_version") or ""),
             permissions=[str(item) for item in permissions],
+            has_gui=has_gui,
+            ui_type=ui_type,
+            ui_title=str(ui.get("title") or data.get("gui_name") or data.get("name") or plugin_id),
+            ui_route=str(ui.get("route") or data.get("gui_route") or ""),
+            ui_icon=str(ui.get("icon") or data.get("gui_icon") or "🧩"),
+            ui_order=ui_order,
+            has_settings=bool(data.get("has_settings", False)),
         )
 
     def _safe_extract(self, archive: zipfile.ZipFile, target: Path) -> None:

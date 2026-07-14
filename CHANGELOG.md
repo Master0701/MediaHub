@@ -1,5 +1,35 @@
 # Changelog
 
+## v1.0.11
+
+### Neu
+
+- Native Plugin-Oberflächen können direkt im MediaHub-Arbeitsbereich eingebettet werden.
+- Der Metadata Editor erhält eine dreigeteilte In-Program-GUI mit Kategorien, Medienliste und Metadatenformular.
+- Native Plugins stellen ihre Oberfläche über `create_widget()` bereit.
+
+### Verbessert
+
+- WebRemote und Mobile Dashboard bleiben Web-GUIs und werden weiterhin im Browser geöffnet.
+- Der bestehende Plugin Center bleibt unverändert die Verwaltungsoberfläche.
+- GUI-Typen `native`, `web` und später `dialog` werden getrennt behandelt.
+- UTF-8-Kodierung bleibt für Python-, JSON- und Markdown-Dateien verbindlich.
+
+## v1.0.10
+
+### Neu
+
+- Zweiter, dynamischer Navigationsbereich `Plugin-Oberflächen` im linken Baum.
+- Aktivierte GUI-Plugins werden automatisch unterhalb der normalen MediaHub-Seiten aufgelistet.
+- Eigene Startseite zum Starten, Stoppen und Öffnen einer Plugin-Oberfläche.
+
+### Verbessert
+
+- Der vorhandene Eintrag `Plugins` und der bestehende Plugin Center bleiben unverändert erhalten.
+- Der neue GUI-Bereich erscheint nur, wenn mindestens ein aktiviertes Plugin eine Oberfläche bereitstellt.
+- Nach Installation, Deinstallation oder Aktivierungsänderung wird die GUI-Navigation automatisch aktualisiert.
+- Web-Plugin-Adressen werden direkt aus der laufenden Plugin-Instanz ermittelt.
+
 ## v1.0.9
 
 ### Neu
@@ -116,6 +146,21 @@
 
 # Changelog
 
+## v1.0.10
+
+### Neu
+
+- Zweiter, dynamischer Navigationsbereich `Plugin-Oberflächen` im linken Baum.
+- Aktivierte GUI-Plugins werden automatisch unterhalb der normalen MediaHub-Seiten aufgelistet.
+- Eigene Startseite zum Starten, Stoppen und Öffnen einer Plugin-Oberfläche.
+
+### Verbessert
+
+- Der vorhandene Eintrag `Plugins` und der bestehende Plugin Center bleiben unverändert erhalten.
+- Der neue GUI-Bereich erscheint nur, wenn mindestens ein aktiviertes Plugin eine Oberfläche bereitstellt.
+- Nach Installation, Deinstallation oder Aktivierungsänderung wird die GUI-Navigation automatisch aktualisiert.
+- Web-Plugin-Adressen werden direkt aus der laufenden Plugin-Instanz ermittelt.
+
 ## v1.0.0-rc10.4
 
 - Release Manager im Recovery Center ergänzt.
@@ -202,6 +247,21 @@ Neu in RC9.2:
 
 # Changelog
 
+## v1.0.10
+
+### Neu
+
+- Zweiter, dynamischer Navigationsbereich `Plugin-Oberflächen` im linken Baum.
+- Aktivierte GUI-Plugins werden automatisch unterhalb der normalen MediaHub-Seiten aufgelistet.
+- Eigene Startseite zum Starten, Stoppen und Öffnen einer Plugin-Oberfläche.
+
+### Verbessert
+
+- Der vorhandene Eintrag `Plugins` und der bestehende Plugin Center bleiben unverändert erhalten.
+- Der neue GUI-Bereich erscheint nur, wenn mindestens ein aktiviertes Plugin eine Oberfläche bereitstellt.
+- Nach Installation, Deinstallation oder Aktivierungsänderung wird die GUI-Navigation automatisch aktualisiert.
+- Web-Plugin-Adressen werden direkt aus der laufenden Plugin-Instanz ermittelt.
+
 ## v1.0.0-rc9
 
 - Hilfe-Center als eigene Hauptseite ergänzt.
@@ -285,6 +345,21 @@ Neu in RC9.2:
 - Fehlende Methode für „Speichern und Sync starten“ ergänzt.
 
 # Changelog
+
+## v1.0.10
+
+### Neu
+
+- Zweiter, dynamischer Navigationsbereich `Plugin-Oberflächen` im linken Baum.
+- Aktivierte GUI-Plugins werden automatisch unterhalb der normalen MediaHub-Seiten aufgelistet.
+- Eigene Startseite zum Starten, Stoppen und Öffnen einer Plugin-Oberfläche.
+
+### Verbessert
+
+- Der vorhandene Eintrag `Plugins` und der bestehende Plugin Center bleiben unverändert erhalten.
+- Der neue GUI-Bereich erscheint nur, wenn mindestens ein aktiviertes Plugin eine Oberfläche bereitstellt.
+- Nach Installation, Deinstallation oder Aktivierungsänderung wird die GUI-Navigation automatisch aktualisiert.
+- Web-Plugin-Adressen werden direkt aus der laufenden Plugin-Instanz ermittelt.
 
 ## v0.9.9.3-alpha
 
