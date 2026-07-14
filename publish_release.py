@@ -48,27 +48,83 @@ def ensure_changelog_entry(version: str) -> None:
 
 
 
+def release_body_without_commit_section(release_notes: str) -> str:
+    """Entfernt interne Commit-Angaben aus den öffentlichen Release-Notizen."""
+    public_lines: list[str] = []
+    skipping_commit_section = False
+
+    for line in release_notes.splitlines():
+        normalized = line.strip().lower()
+        if normalized == "## commit-nachricht":
+            skipping_commit_section = True
+            continue
+        if skipping_commit_section:
+            # Die Commit-Nachricht steht im MediaHub-Workflow am Ende. Sollte
+            # später doch noch ein weiterer Hauptabschnitt folgen, wird er
+            # wieder als öffentlicher Inhalt übernommen.
+            if line.startswith("## ") and normalized != "## commit-nachricht":
+                skipping_commit_section = False
+            else:
+                continue
+        public_lines.append(line)
+
+    return "\n".join(public_lines).strip()
+
+
 def update_readme(version: str, release_notes: str) -> None:
-    """Aktualisiert den Versionskopf und die aktuellen Änderungen."""
+    """Aktualisiert Versionskopf und aktuellen Änderungsblock der README."""
     body = release_body_without_commit_section(release_notes)
     body_lines = [
         line for line in body.splitlines()
         if line.strip().lower() not in {"# änderungen", "# release notes"}
     ]
     body = "\n".join(body_lines).strip()
+    if not body:
+        raise RuntimeError("Die öffentlichen Release-Notizen sind leer.")
 
-    text = (
+    old_text = README.read_text(encoding="utf-8") if README.exists() else ""
+    history_marker = "Die vollständige Versionshistorie steht in [`CHANGELOG.md`](CHANGELOG.md)."
+    marker_index = old_text.find(history_marker)
+
+    if marker_index >= 0:
+        stable_tail = old_text[marker_index:].lstrip()
+    else:
+        stable_tail = (
+            history_marker + "\n\n"
+            "## Start aus dem Quellcode\n\n"
+            "```powershell\n"
+            "python -m pip install -r requirements.txt\n"
+            "python main.py\n"
+            "```\n"
+        )
+
+    updated = (
         f"# MediaHub v{version}\n\n"
         "MediaHub ist ein lokales PySide6-Programm zum Verwalten von "
         "YouTube-Kanälen, Playlists, Video-Downloads, Plex-Importen und "
         "separat installierbaren Erweiterungen.\n\n"
-        f"## Änderungen in v{version}\n\n"
+        f"## Neu und verbessert in v{version}\n\n"
         f"{body}\n\n"
-        "Die vollständige Versionshistorie steht in "
-        "[`CHANGELOG.md`](CHANGELOG.md).\n"
+        f"{stable_tail.rstrip()}\n"
     )
-    README.write_text(text, encoding="utf-8")
+    README.write_text(updated, encoding="utf-8")
 
+
+def verify_release_files(version: str) -> None:
+    """Prüft vor Build und Commit die zentralen UTF-8-/Versionsdateien."""
+    expected_header = f"# MediaHub v{version}"
+    readme_text = README.read_text(encoding="utf-8")
+    if not readme_text.startswith(expected_header):
+        raise RuntimeError(f"README-Version wurde nicht korrekt aktualisiert: {expected_header}")
+
+    app_info_text = APP_INFO.read_text(encoding="utf-8")
+    match = VERSION_RE.search(app_info_text)
+    if not match or match.group(1) != version:
+        raise RuntimeError("APP_VERSION stimmt nach der Aktualisierung nicht mit der Release-Version überein.")
+
+    # Das Lesen mit encoding='utf-8' ist zugleich die verbindliche UTF-8-Prüfung.
+    for path in (README, CHANGELOG, PENDING_RELEASE_NOTES, APP_INFO):
+        path.read_text(encoding="utf-8")
 
 def current_branch() -> str:
     result = subprocess.run(
@@ -104,9 +160,18 @@ def main() -> int:
     if tag_exists(tag):
         raise SystemExit(f"Der Git-Tag {tag} existiert bereits. Bitte eine neue Version verwenden.")
 
+    if not PENDING_RELEASE_NOTES.exists():
+        raise SystemExit("RELEASE_NOTES_PENDING.md fehlt. Das Release wurde nicht gestartet.")
+    release_notes = PENDING_RELEASE_NOTES.read_text(encoding="utf-8").strip()
+    if not release_notes:
+        raise SystemExit("RELEASE_NOTES_PENDING.md ist leer. Das Release wurde nicht gestartet.")
+
     print(f"=== MediaHub {tag} veröffentlichen ===", flush=True)
     set_version(version)
     ensure_changelog_entry(version)
+    update_readme(version, release_notes)
+    verify_release_files(version)
+    print(f"README und zentrale Versionsdateien für {tag} aktualisiert (UTF-8 OK).", flush=True)
     run(sys.executable, "mediahub_version.py")
 
     if not args.skip_local_build:
