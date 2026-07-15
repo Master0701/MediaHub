@@ -30,6 +30,12 @@ class PluginInfo:
     ui_icon: str = ""
     ui_order: int = 100
     has_settings: bool = False
+    web_ui_enabled: bool = False
+    web_ui_title: str = ""
+    web_ui_route: str = ""
+    web_ui_icon: str = ""
+    web_ui_order: int = 100
+    web_ui_shell: bool = False
 
 
 class MediaHubPluginAPI:
@@ -40,6 +46,12 @@ class MediaHubPluginAPI:
         "setup_wizard.submit": {"provider_action": "setup_wizard.submit", "permission": "actions.setup_wizard.control"},
         "setup_wizard.download_selected": {"provider_action": "setup_wizard.download_selected", "permission": "actions.downloads.control"},
         "plugins.open": {"provider_action": "plugins.open", "permission": "actions.plugins.open"},
+        "plugins.start": {"provider_action": "plugins.start", "permission": "actions.plugins.control"},
+        "plugins.stop": {"provider_action": "plugins.stop", "permission": "actions.plugins.control"},
+        "plugins.enable": {"provider_action": "plugins.enable", "permission": "actions.plugins.control"},
+        "plugins.disable": {"provider_action": "plugins.disable", "permission": "actions.plugins.control"},
+        "plugins.remove": {"provider_action": "plugins.remove", "permission": "actions.plugins.manage"},
+        "plugins.install": {"provider_action": "plugins.install", "permission": "actions.plugins.manage"},
         "channels.sync": {"provider_action": "channels.sync", "permission": "actions.channels.sync"},
         "channels.sync_current": {"provider_action": "channels.sync_current", "permission": "actions.channels.sync"},
         "downloads.cancel": {"provider_action": "downloads.cancel", "permission": "actions.downloads.control"},
@@ -49,7 +61,7 @@ class MediaHubPluginAPI:
         "scheduler.check": {"provider_action": "scheduler.check", "permission": "actions.scheduler.control"},
         "scheduler.toggle": {"provider_action": "scheduler.toggle", "permission": "actions.scheduler.control"},
     }
-    def __init__(self, *, base_dir: Path, app_version: str, repository: Any = None, controller: Any = None, logger: Any = None, status_provider: Callable[[], dict] | None = None, download_status_provider: Callable[[], dict] | None = None, action_provider: Callable[[str, dict], dict] | None = None, wizard_provider: Any = None, wizard_selection_provider: Callable[[], dict] | None = None):
+    def __init__(self, *, base_dir: Path, app_version: str, repository: Any = None, controller: Any = None, logger: Any = None, status_provider: Callable[[], dict] | None = None, download_status_provider: Callable[[], dict] | None = None, action_provider: Callable[[str, dict], dict] | None = None, wizard_provider: Any = None, wizard_selection_provider: Callable[[], dict] | None = None, plugin_provider: Callable[[], list[dict]] | None = None):
         self.base_dir = Path(base_dir)
         self.app_version = str(app_version)
         self._repository = repository
@@ -60,6 +72,7 @@ class MediaHubPluginAPI:
         self._action_provider = action_provider
         self._wizard_provider = wizard_provider
         self._wizard_selection_provider = wizard_selection_provider
+        self._plugin_provider = plugin_provider
 
     def get_status(self) -> dict:
         result = {"application":"MediaHub","version":self.app_version,"connected":True,"channels":self.get_channel_count(),"playlists":self.get_playlist_count(),"videos":self.get_video_count()}
@@ -220,12 +233,23 @@ class MediaHubPluginAPI:
         return self.get_dashboard_details()
 
     def get_installed_plugins(self) -> list[dict]:
+        """Liefert den aktuellen Pluginzustand inklusive Weboberflächen."""
+        if self._plugin_provider is not None:
+            try:
+                value = self._plugin_provider() or []
+                if isinstance(value, list):
+                    return [dict(item) for item in value if isinstance(item, dict)]
+            except Exception as error:
+                self.log(f"Pluginstatus konnte nicht gelesen werden: {error}", level="warning")
+
         import json
         result = []
         plugins_dir = self.base_dir / "plugins"
         for manifest in sorted(plugins_dir.glob("*/plugin.json")):
             try:
                 data = json.loads(manifest.read_text(encoding="utf-8"))
+                ui = data.get("ui") if isinstance(data.get("ui"), dict) else {}
+                web = ui.get("web") if isinstance(ui.get("web"), dict) else {}
                 result.append({
                     "id": str(data.get("id") or manifest.parent.name),
                     "name": str(data.get("name") or data.get("id") or manifest.parent.name),
@@ -235,6 +259,14 @@ class MediaHubPluginAPI:
                     "installed": True,
                     "running": False,
                     "type": str(data.get("type") or "tool"),
+                    "has_settings": bool(data.get("has_settings", False)),
+                    "web_ui": {
+                        "enabled": bool(web.get("enabled", False)),
+                        "title": str(web.get("title") or data.get("name") or ""),
+                        "route": str(web.get("route") or ""),
+                        "icon": str(web.get("icon") or "🧩"),
+                        "shell": bool(web.get("shell", False)),
+                    },
                 })
             except Exception:
                 continue

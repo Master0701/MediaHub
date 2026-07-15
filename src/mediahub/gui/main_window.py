@@ -271,6 +271,12 @@ class MainWindow(QMainWindow):
             "setup_wizard.submit": self._plugin_action_submit_setup_wizard,
             "setup_wizard.download_selected": self._plugin_action_download_selected_wizard_videos,
             "plugins.open": lambda data: self.open_plugin_center(),
+            "plugins.start": self._plugin_action_start_plugin,
+            "plugins.stop": self._plugin_action_stop_plugin,
+            "plugins.enable": self._plugin_action_enable_plugin,
+            "plugins.disable": self._plugin_action_disable_plugin,
+            "plugins.remove": self._plugin_action_remove_plugin,
+            "plugins.install": self._plugin_action_install_plugin,
             "channels.sync_current": lambda data: self.sync_current_channel(),
             "channels.sync": self._plugin_action_sync_channel,
             "downloads.cancel": lambda data: self.cancel_download(),
@@ -281,6 +287,33 @@ class MainWindow(QMainWindow):
             "scheduler.toggle": lambda data: self.toggle_scheduler_automatic(),
         }
 
+
+    def _plugin_result(self, result):
+        ok, message = result
+        if not ok:
+            raise RuntimeError(message)
+        return {"ok": True, "message": message}
+
+    def _plugin_action_start_plugin(self, data: dict):
+        return self._plugin_result(self.plugin_center.start_plugin(str(data.get("plugin_id") or "")))
+
+    def _plugin_action_stop_plugin(self, data: dict):
+        return self._plugin_result(self.plugin_center.stop_plugin(str(data.get("plugin_id") or "")))
+
+    def _plugin_action_enable_plugin(self, data: dict):
+        return self._plugin_result(self.plugin_center.set_plugin_enabled(str(data.get("plugin_id") or ""), True))
+
+    def _plugin_action_disable_plugin(self, data: dict):
+        return self._plugin_result(self.plugin_center.set_plugin_enabled(str(data.get("plugin_id") or ""), False))
+
+    def _plugin_action_remove_plugin(self, data: dict):
+        return self._plugin_result(self.plugin_center.remove_plugin(str(data.get("plugin_id") or "")))
+
+    def _plugin_action_install_plugin(self, data: dict):
+        return self._plugin_result(self.plugin_center.install_plugin_payload(
+            str(data.get("filename") or ""),
+            str(data.get("content_base64") or ""),
+        ))
 
     def _plugin_action_submit_setup_wizard(self, data: dict):
         """Speichert den vollständig im Browser ausgefüllten Start-Assistenten."""
@@ -522,6 +555,11 @@ class MainWindow(QMainWindow):
             action_provider=self._queue_plugin_action,
             wizard_provider=web_setup_wizard,
             wizard_selection_provider=self._get_webremote_wizard_selection,
+            plugin_provider=lambda: (
+                self.plugin_center.get_public_plugins()
+                if self.plugin_center is not None
+                else []
+            ),
         )
         self.plugin_center = PluginCenter(
             base_dir=self.base_dir,

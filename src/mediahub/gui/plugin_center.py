@@ -1,4 +1,7 @@
 from pathlib import Path
+import base64
+import json
+import tempfile
 
 from PySide6.QtCore import Qt, QUrl, Signal
 from PySide6.QtGui import QDesktopServices
@@ -117,9 +120,90 @@ class PluginCenter(QWidget):
         plugin_id = str(plugin_id)
         return next((plugin for plugin in self.plugins if plugin.plugin_id == plugin_id), None)
 
+    def get_public_plugins(self):
+        """Öffentlicher, pfadfreier Status für WebRemote und Mobile Dashboard."""
+        result = []
+        for plugin in self.plugins:
+            result.append({
+                "id": plugin.plugin_id,
+                "name": plugin.name,
+                "version": plugin.version,
+                "description": plugin.description,
+                "enabled": plugin.enabled,
+                "installed": True,
+                "running": self.is_running(plugin.plugin_id),
+                "type": plugin.plugin_type,
+                "has_settings": plugin.has_settings,
+                "web_ui": {
+                    "enabled": bool(plugin.web_ui_enabled),
+                    "title": plugin.web_ui_title or plugin.name,
+                    "route": plugin.web_ui_route,
+                    "icon": plugin.web_ui_icon or "🧩",
+                    "order": plugin.web_ui_order,
+                    "shell": bool(plugin.web_ui_shell),
+                },
+            })
+        return result
+
+    def set_plugin_enabled(self, plugin_id, enabled):
+        plugin = self.get_plugin(plugin_id)
+        if plugin is None:
+            return False, "Plugin wurde nicht gefunden."
+        if not enabled and self.is_running(plugin.plugin_id):
+            ok, message = self.stop_plugin(plugin.plugin_id)
+            if not ok:
+                return False, message
+        manifest = plugin.path / "plugin.json"
+        try:
+            data = json.loads(manifest.read_text(encoding="utf-8"))
+            data["enabled"] = bool(enabled)
+            manifest.write_text(json.dumps(data, indent=2, ensure_ascii=False) + "\n", encoding="utf-8")
+            self.refresh()
+            return True, f"Plugin {'aktiviert' if enabled else 'deaktiviert'}: {plugin.name}"
+        except Exception as error:
+            return False, f"Pluginstatus konnte nicht gespeichert werden: {error}"
+
+    def remove_plugin(self, plugin_id):
+        plugin = self.get_plugin(plugin_id)
+        if plugin is None:
+            return False, "Plugin wurde nicht gefunden."
+        if self.is_running(plugin.plugin_id):
+            return False, "Bitte das Plugin vor dem Entfernen stoppen."
+        ok, message = self.loader.uninstall(plugin)
+        self.refresh()
+        return ok, message
+
+    def install_plugin_payload(self, filename, content_base64):
+        filename = Path(str(filename or "plugin.mhplugin")).name
+        if not filename.lower().endswith(".mhplugin"):
+            return False, "Nur .mhplugin-Dateien werden unterstützt."
+        try:
+            raw = base64.b64decode(str(content_base64 or ""), validate=True)
+        except Exception:
+            return False, "Die hochgeladene Plugin-Datei ist ungültig."
+        if not raw or len(raw) > 100 * 1024 * 1024:
+            return False, "Die Plugin-Datei ist leer oder größer als 100 MB."
+        temp_path = None
+        try:
+            with tempfile.NamedTemporaryFile(prefix="mediahub_web_", suffix=".mhplugin", delete=False) as handle:
+                handle.write(raw)
+                temp_path = Path(handle.name)
+            ok, message = self.loader.install_mhplugin(temp_path)
+            self.refresh()
+            return ok, message
+        finally:
+            if temp_path is not None:
+                temp_path.unlink(missing_ok=True)
+
     def gui_plugins(self):
         return sorted(
-            [plugin for plugin in self.plugins if plugin.enabled and plugin.has_gui],
+            [
+                plugin
+                for plugin in self.plugins
+                if plugin.enabled
+                and plugin.has_gui
+                and plugin.ui_type.strip().lower() in {"native", "window", "dialog"}
+            ],
             key=lambda plugin: (plugin.ui_order, (plugin.ui_title or plugin.name).lower()),
         )
 

@@ -45,6 +45,13 @@ class PluginLoader:
             ui_order = int(ui.get("order", 100))
         except (TypeError, ValueError):
             ui_order = 100
+        web_ui = ui.get("web") or {}
+        if not isinstance(web_ui, dict):
+            web_ui = {}
+        try:
+            web_ui_order = int(web_ui.get("order", ui_order))
+        except (TypeError, ValueError):
+            web_ui_order = ui_order
 
         return PluginInfo(
             plugin_id=plugin_id,
@@ -68,6 +75,12 @@ class PluginLoader:
             ui_icon=str(ui.get("icon") or data.get("gui_icon") or "🧩"),
             ui_order=ui_order,
             has_settings=bool(data.get("has_settings", False)),
+            web_ui_enabled=bool(web_ui.get("enabled", False)),
+            web_ui_title=str(web_ui.get("title") or ui.get("title") or data.get("name") or plugin_id),
+            web_ui_route=str(web_ui.get("route") or ui.get("route") or ""),
+            web_ui_icon=str(web_ui.get("icon") or ui.get("icon") or "🧩"),
+            web_ui_order=web_ui_order,
+            web_ui_shell=bool(web_ui.get("shell", False)),
         )
 
     def _safe_extract(self, archive: zipfile.ZipFile, target: Path) -> None:

@@ -17,6 +17,8 @@ class PluginGuiPanel(QWidget):
         self.plugin_id = str(plugin_id)
         self.plugin_center = plugin_center
         self._native_widget = None
+        self._plugin_window = None
+        self._window_widget = None
         self._build_ui()
         self.refresh()
 
@@ -70,7 +72,11 @@ class PluginGuiPanel(QWidget):
         if plugin is None:
             self.refresh()
             return
-        if plugin.ui_type == "native":
+        if plugin.ui_type == "window":
+            self._ensure_plugin_window()
+            self.refresh()
+            return
+        elif plugin.ui_type == "native":
             self._ensure_native_widget()
         self.refresh()
 
@@ -85,17 +91,22 @@ class PluginGuiPanel(QWidget):
             return
 
         running = self.plugin_center.is_running(plugin.plugin_id)
-        is_native = plugin.ui_type == "native"
+        ui_type = str(plugin.ui_type or "").strip().lower()
+        is_native = ui_type == "native"
+        is_window = ui_type == "window"
         self.title.setText(f"{plugin.ui_icon or '🧩'} {plugin.ui_title or plugin.name}")
         self.description.setText(plugin.description or "Dieses Plugin besitzt eine eigene Oberfläche.")
         self.status.setText(
             f"Version: {plugin.version}   |   Status: {'läuft' if running else 'gestoppt'}   |   "
-            f"Darstellung: {'direkt in MediaHub' if is_native else 'lokale Weboberfläche'}"
+            f"Darstellung: {'eigenes Desktop-Fenster' if is_window else ('direkt in MediaHub' if is_native else 'lokale Weboberfläche')}"
         )
-        self.btn_open.setText("In MediaHub öffnen" if is_native else "Im Browser öffnen")
+        self.btn_open.setText(
+            "In eigenem Fenster öffnen" if is_window
+            else ("In MediaHub öffnen" if is_native else "Im Browser öffnen")
+        )
         self.btn_open.setEnabled(plugin.enabled)
-        self.btn_start.setVisible(not is_native)
-        self.btn_stop.setVisible(not is_native)
+        self.btn_start.setVisible(not is_native and not is_window)
+        self.btn_stop.setVisible(not is_native and not is_window)
         self.btn_start.setEnabled(plugin.enabled and not running)
         self.btn_stop.setEnabled(running)
         self.btn_settings.setEnabled(running and plugin.has_settings)
@@ -105,6 +116,64 @@ class PluginGuiPanel(QWidget):
                 self._native_widget.refresh()
             except Exception:
                 pass
+
+
+    def _ensure_plugin_window(self):
+        plugin = self.plugin()
+        if plugin is None:
+            return False
+
+        if self._plugin_window is not None:
+            self._plugin_window.show()
+            self._plugin_window.raise_()
+            self._plugin_window.activateWindow()
+            return True
+
+        ok, message = self.plugin_center.start_plugin(self.plugin_id)
+        if not ok:
+            QMessageBox.warning(self, "Plugin-Oberfläche", message)
+            return False
+
+        instance = self.plugin_center.get_running_instance(self.plugin_id)
+        factory = getattr(instance, "create_widget", None) if instance is not None else None
+        if not callable(factory):
+            QMessageBox.warning(
+                self,
+                "Plugin-Oberfläche",
+                "Dieses Plugin ist als Desktop-Fenster eingetragen, stellt aber keine create_widget()-Methode bereit.",
+            )
+            return False
+
+        try:
+            window = QWidget(None, Qt.WindowType.Window)
+            window.setAttribute(Qt.WidgetAttribute.WA_DeleteOnClose, True)
+            window.setWindowTitle(plugin.ui_title or plugin.name)
+            window.resize(1420, 860)
+            window.setMinimumSize(1000, 650)
+            layout = QVBoxLayout(window)
+            layout.setContentsMargins(10, 10, 10, 10)
+            layout.setSpacing(0)
+            widget = factory(parent=window)
+            if widget is None:
+                raise RuntimeError("Das Plugin hat kein Widget zurückgegeben.")
+            layout.addWidget(widget, 1)
+            self._plugin_window = window
+            self._window_widget = widget
+
+            def clear_window_reference(*_args):
+                self._plugin_window = None
+                self._window_widget = None
+
+            window.destroyed.connect(clear_window_reference)
+            window.show()
+            window.raise_()
+            window.activateWindow()
+            return True
+        except Exception as error:
+            self._plugin_window = None
+            self._window_widget = None
+            QMessageBox.warning(self, "Plugin-Oberfläche", f"Plugin-Fenster konnte nicht geladen werden:\n{error}")
+            return False
 
     def _ensure_native_widget(self):
         if self._native_widget is not None:
@@ -147,7 +216,11 @@ class PluginGuiPanel(QWidget):
         plugin = self.plugin()
         if plugin is None:
             return
-        if plugin.ui_type == "native":
+        if plugin.ui_type == "window":
+            self._ensure_plugin_window()
+            self.refresh()
+            return
+        elif plugin.ui_type == "native":
             self._ensure_native_widget()
             self.refresh()
             return
