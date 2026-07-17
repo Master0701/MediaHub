@@ -134,7 +134,7 @@ def build_setup():
 
 
 def copy_text_files(target_dir: Path):
-    for filename in ["README.md", "CHANGELOG.md", "ROADMAP.md"]:
+    for filename in ["README.md", "CHANGELOG.md", "ROADMAP.md", "THIRD_PARTY_NOTICES.md"]:
         source = ROOT / filename
         if source.exists():
             shutil.copy2(source, target_dir / filename)

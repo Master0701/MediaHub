@@ -44,7 +44,7 @@ class ReleaseService:
         self._create_empty_database(target / "config" / "mediahub.sqlite3")
         details.append("leere SQLite-Datenbank erstellt")
 
-        for name in ("README.md", "CHANGELOG.md", "ROADMAP.md", "TODO.md", "requirements.txt", ".gitignore", "main.py"):
+        for name in ("README.md", "CHANGELOG.md", "ROADMAP.md", "TODO.md", "requirements.txt", "THIRD_PARTY_NOTICES.md", ".gitignore", "main.py"):
             src = self.base_dir / name
             if src.exists():
                 shutil.copy2(src, target / name)
@@ -220,6 +220,7 @@ a = Analysis(
         (str(project / 'assets'), 'assets'),
         (str(project / 'README.md'), '.'),
         (str(project / 'CHANGELOG.md'), '.'),
+        (str(project / 'THIRD_PARTY_NOTICES.md'), '.'),
     ],
     hiddenimports=[],
     hookspath=[],

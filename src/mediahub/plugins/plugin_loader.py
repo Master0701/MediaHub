@@ -36,6 +36,14 @@ class PluginLoader:
         if not isinstance(permissions, list):
             permissions = []
 
+        required_tools = data.get("required_tools") or []
+        if not isinstance(required_tools, list):
+            required_tools = []
+
+        optional_tools = data.get("optional_tools") or []
+        if not isinstance(optional_tools, list):
+            optional_tools = []
+
         ui = data.get("ui") or {}
         if not isinstance(ui, dict):
             ui = {}
@@ -68,6 +76,8 @@ class PluginLoader:
             class_name=str(data.get("class_name") or ""),
             minimum_mediahub_version=str(data.get("minimum_mediahub_version") or ""),
             permissions=[str(item) for item in permissions],
+            required_tools=[str(item).strip() for item in required_tools if str(item).strip()],
+            optional_tools=[str(item).strip() for item in optional_tools if str(item).strip()],
             has_gui=has_gui,
             ui_type=ui_type,
             ui_title=str(ui.get("title") or data.get("gui_name") or data.get("name") or plugin_id),

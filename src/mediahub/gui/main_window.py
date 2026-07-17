@@ -222,6 +222,7 @@ class MainWindow(QMainWindow):
         help_menu.addAction("Anleitung", self.open_manual)
         help_menu.addAction("Erste Schritte", self.open_first_steps)
         help_menu.addAction("Changelog", self.open_changelog)
+        help_menu.addAction("Lizenzen und Fremdsoftware", self.open_third_party_notices)
         help_menu.addAction("Versionshistorie", self.open_version_history)
         help_menu.addSeparator()
         help_menu.addAction("Log-Ordner öffnen", self.open_log_folder)
@@ -565,6 +566,7 @@ class MainWindow(QMainWindow):
             base_dir=self.base_dir,
             parent=self,
             mediahub_api=plugin_api,
+            tool_service=self.tool_service,
         )
         self.plugin_center.plugins_changed.connect(self.refresh_plugin_gui_navigation)
 
@@ -1497,6 +1499,17 @@ class MainWindow(QMainWindow):
             return
         QDesktopServices.openUrl(QUrl.fromLocalFile(str(path)))
 
+    def open_third_party_notices(self):
+        path = self.base_dir / "THIRD_PARTY_NOTICES.txt"
+        if not path.exists():
+            QMessageBox.warning(
+                self,
+                "Lizenzen und Fremdsoftware",
+                "THIRD_PARTY_NOTICES.txt wurde nicht gefunden.",
+            )
+            return
+        QDesktopServices.openUrl(QUrl.fromLocalFile(str(path)))
+
     def open_version_history(self):
         """Öffnet die Versionshistorie im Hilfe-Center."""
         if self.help_center is not None and hasattr(self.help_center, "select_topic"):
@@ -1763,6 +1776,10 @@ class MainWindow(QMainWindow):
         layout.addWidget(version)
         layout.addWidget(description)
         layout.addWidget(credits)
+        license_hint = QLabel("Fremdsoftware und Plugins unterliegen den Lizenzen ihrer jeweiligen Rechteinhaber.")
+        license_hint.setWordWrap(True)
+        license_hint.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        layout.addWidget(license_hint)
         layout.addWidget(QLabel("System:"))
         layout.addWidget(system)
         layout.addWidget(close_button)

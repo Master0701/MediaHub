@@ -7,6 +7,31 @@ import os
 
 
 class ToolService:
+    # ------------------------------------------------------------------
+    # Plugin-Werkzeuge
+    # ------------------------------------------------------------------
+
+    PLUGIN_TOOLS = {
+        "mediainfo": {
+            "display_name": "MediaInfo",
+            "exe": "mediainfo.exe",
+            "required_by": [],
+            "optional_by": [],
+        },
+        "tesseract": {
+            "display_name": "Tesseract OCR",
+            "exe": "tesseract.exe",
+            "required_by": [],
+            "optional_by": [],
+        },
+        "mkvtoolnix": {
+            "display_name": "MKVToolNix",
+            "exe": "mkvmerge.exe",
+            "required_by": [],
+            "optional_by": [],
+        },
+    }
+
     YT_DLP_URL = "https://github.com/yt-dlp/yt-dlp/releases/latest/download/yt-dlp.exe"
     DENO_URL = "https://github.com/denoland/deno/releases/latest/download/deno-x86_64-pc-windows-msvc.zip"
 
@@ -24,8 +49,103 @@ class ToolService:
         self.ffprobe = self.tools_dir / "ffprobe.exe"
         self.deno = self.tools_dir / "deno.exe"
 
+        self._plugin_tool_usage: dict[str, dict[str, set[str]]] = {}
+
     def ensure_tools_dir(self):
         self.tools_dir.mkdir(parents=True, exist_ok=True)
+
+    def plugin_tool_path(self, tool_id: str) -> Path:
+        """Liefert den Pfad eines registrierten Plugin-Werkzeugs."""
+
+        tool = self.PLUGIN_TOOLS.get(tool_id)
+
+        if tool is None:
+            raise KeyError(f"Unbekanntes Plugin-Tool: {tool_id}")
+
+        return self.tools_dir / tool["exe"]
+
+    def register_plugin_tools(
+        self,
+        plugin_id: str,
+        required_tools: list[str] | None = None,
+        optional_tools: list[str] | None = None,
+    ) -> None:
+        """
+        Registriert die von einem Plugin benötigten und optional verwendeten
+        Werkzeuge. Unbekannte Tool-IDs werden ignoriert.
+        """
+
+        plugin_id = str(plugin_id or "").strip()
+        if not plugin_id:
+            return
+
+        required = {
+            str(tool_id).strip()
+            for tool_id in (required_tools or [])
+            if str(tool_id).strip() in self.PLUGIN_TOOLS
+        }
+        optional = {
+            str(tool_id).strip()
+            for tool_id in (optional_tools or [])
+            if str(tool_id).strip() in self.PLUGIN_TOOLS
+        }
+
+        optional.difference_update(required)
+
+        self._plugin_tool_usage[plugin_id] = {
+            "required": required,
+            "optional": optional,
+        }
+
+    def unregister_plugin_tools(self, plugin_id: str) -> None:
+        """Entfernt die Werkzeugzuordnung eines Plugins."""
+
+        plugin_id = str(plugin_id or "").strip()
+        if not plugin_id:
+            return
+
+        self._plugin_tool_usage.pop(plugin_id, None)
+
+    def clear_plugin_tool_usage(self) -> None:
+        """Entfernt alle registrierten Plugin-Werkzeugzuordnungen."""
+
+        self._plugin_tool_usage.clear()
+
+    def get_tool_usage(self, tool_id: str) -> dict:
+        """Liefert die Plugin-Nutzung eines registrierten Werkzeugs."""
+
+        tool_id = str(tool_id or "").strip()
+        tool = self.PLUGIN_TOOLS.get(tool_id)
+
+        if tool is None:
+            raise KeyError(f"Unbekanntes Plugin-Tool: {tool_id}")
+
+        required_by: list[str] = []
+        optional_by: list[str] = []
+
+        for plugin_id, usage in self._plugin_tool_usage.items():
+            if tool_id in usage.get("required", set()):
+                required_by.append(plugin_id)
+            elif tool_id in usage.get("optional", set()):
+                optional_by.append(plugin_id)
+
+        path = self.plugin_tool_path(tool_id)
+        return {
+            "tool_id": tool_id,
+            "display_name": str(tool.get("display_name") or tool_id),
+            "path": path,
+            "installed": path.exists(),
+            "required_by": sorted(required_by),
+            "optional_by": sorted(optional_by),
+        }
+
+    def get_all_plugin_tool_usage(self) -> list[dict]:
+        """Liefert die Nutzungsübersicht aller Plugin-Werkzeuge."""
+
+        return [
+            self.get_tool_usage(tool_id)
+            for tool_id in sorted(self.PLUGIN_TOOLS)
+        ]
 
     def check_tools(self) -> dict:
         self.ensure_tools_dir()
@@ -127,7 +247,6 @@ class ToolService:
                 file.unlink()
 
         self.download_missing_tools(log_callback)
-
 
     def deno_path(self) -> str | None:
         if self.deno.exists():

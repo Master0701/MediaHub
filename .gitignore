@@ -153,3 +153,7 @@ apply_part*.py
 apply_part8_*.py
 *.part8_*_backup
 *.bak_part8_*
+# Temporäre MediaHub-Entwicklungs- und Sicherungsdateien
+*.before_*
+*.fix*_backup
+PRUEFBERICHT_*.md

@@ -192,6 +192,7 @@ def write_release_files():
     readme = RELEASE_DIR / "README.txt"
     changelog = RELEASE_DIR / "CHANGELOG.txt"
     sha_file = RELEASE_DIR / "SHA256.txt"
+    third_party = RELEASE_DIR / "THIRD_PARTY_NOTICES.md"
 
     readme.write_text(
         f"""MediaHub v{APP_VERSION}
@@ -215,6 +216,10 @@ Beim ersten Start legt MediaHub benötigte Ordner wie config, tools, downloads, 
 """,
         encoding="utf-8",
     )
+
+    source_third_party = ROOT / "THIRD_PARTY_NOTICES.md"
+    if source_third_party.exists():
+        shutil.copy2(source_third_party, third_party)
 
     changelog.write_text(
         f"""MediaHub v{APP_VERSION}
@@ -255,6 +260,7 @@ def final_check():
         ("README", RELEASE_DIR / "README.txt"),
         ("CHANGELOG", RELEASE_DIR / "CHANGELOG.txt"),
         ("SHA256", RELEASE_DIR / "SHA256.txt"),
+        ("Drittanbieter-Hinweise", RELEASE_DIR / "THIRD_PARTY_NOTICES.md"),
 
         ("Kurzanleitung TXT", RELEASE_DIR / "docs" / "quick" / "KURZANLEITUNG.txt"),
         ("Kurzanleitung HTML", RELEASE_DIR / "docs" / "quick" / "MediaHub_Kurzanleitung.html"),

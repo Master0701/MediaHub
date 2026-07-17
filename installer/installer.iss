@@ -47,6 +47,7 @@ Source: "..\release\README.txt"; DestDir: "{app}"; Flags: ignoreversion skipifso
 Source: "..\release\CHANGELOG.txt"; DestDir: "{app}"; Flags: ignoreversion skipifsourcedoesntexist
 Source: "..\CHANGELOG.md"; DestDir: "{app}"; Flags: ignoreversion skipifsourcedoesntexist
 Source: "..\README.md"; DestDir: "{app}"; Flags: ignoreversion skipifsourcedoesntexist
+Source: "..\THIRD_PARTY_NOTICES.md"; DestDir: "{app}"; Flags: ignoreversion skipifsourcedoesntexist
 
 ; MediaHub Wartungs-/Diagnosewerkzeuge
 Source: "..\tools\check_mediahub_images.py"; DestDir: "{app}\tools"; Flags: ignoreversion skipifsourcedoesntexist
@@ -72,6 +73,7 @@ Name: "{group}\Schnellstart"; Filename: "{app}\docs\quick\MediaHub_Kurzanleitung
 Name: "{group}\Benutzerhandbuch"; Filename: "{app}\docs\MediaHub_Handbuch.pdf"; WorkingDir: "{app}\docs"; Check: FileExistsEx(ExpandConstant('{app}\docs\MediaHub_Handbuch.pdf'))
 Name: "{group}\Benutzerhandbuch HTML"; Filename: "{app}\docs\MediaHub_Handbuch.html"; WorkingDir: "{app}\docs"; Check: FileExistsEx(ExpandConstant('{app}\docs\MediaHub_Handbuch.html'))
 Name: "{group}\Changelog"; Filename: "{app}\CHANGELOG.txt"; WorkingDir: "{app}"; Check: FileExistsEx(ExpandConstant('{app}\CHANGELOG.txt'))
+Name: "{group}\Lizenzen und Fremdsoftware"; Filename: "{app}\THIRD_PARTY_NOTICES.md"; WorkingDir: "{app}"; Check: FileExistsEx(ExpandConstant('{app}\THIRD_PARTY_NOTICES.md'))
 Name: "{group}\Tools-Ordner"; Filename: "{app}\tools"; WorkingDir: "{app}\tools"
 Name: "{group}\Deinstallieren"; Filename: "{uninstallexe}"
 Name: "{userdesktop}\MediaHub"; Filename: "{app}\MediaHub.exe"; WorkingDir: "{app}"; IconFilename: "{app}\MediaHub.exe"; Tasks: desktopicon
@@ -93,6 +95,7 @@ Type: files; Name: "{app}\README.txt"
 Type: files; Name: "{app}\README.md"
 Type: files; Name: "{app}\CHANGELOG.txt"
 Type: files; Name: "{app}\CHANGELOG.md"
+Type: files; Name: "{app}\THIRD_PARTY_NOTICES.md"
 ; Verknüpfungen entfernen.
 Type: files; Name: "{userdesktop}\MediaHub.lnk"
 

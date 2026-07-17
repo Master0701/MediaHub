@@ -20,11 +20,12 @@ from src.mediahub.gui.plugin_settings_dialog import WebPluginSettingsDialog
 class PluginCenter(QWidget):
     plugins_changed = Signal()
 
-    def __init__(self, base_dir: Path, parent=None, *, mediahub_api: MediaHubPluginAPI | None = None):
+    def __init__(self, base_dir: Path, parent=None, *, mediahub_api: MediaHubPluginAPI | None = None, tool_service=None):
         super().__init__(parent)
         self.base_dir = Path(base_dir)
         self.loader = PluginLoader(self.base_dir)
         self.runtime = PluginRuntime(mediahub_api) if mediahub_api is not None else None
+        self.tool_service = tool_service
         self.plugins = []
         self._last_gui_signature = ()
         self._build_ui()
@@ -87,6 +88,7 @@ class PluginCenter(QWidget):
     def refresh(self):
         selected = self.selected_plugin_id()
         self.plugins = self.loader.discover()
+        self._refresh_plugin_tool_usage()
         self.plugin_list.clear()
         selected_row = 0
         for row, plugin in enumerate(self.plugins):
@@ -109,6 +111,22 @@ class PluginCenter(QWidget):
         if gui_signature != self._last_gui_signature:
             self._last_gui_signature = gui_signature
             self.plugins_changed.emit()
+
+
+    def _refresh_plugin_tool_usage(self):
+        """Überträgt die Werkzeuganforderungen aller Plugins an den ToolService."""
+
+        if self.tool_service is None:
+            return
+
+        self.tool_service.clear_plugin_tool_usage()
+
+        for plugin in self.plugins:
+            self.tool_service.register_plugin_tools(
+                plugin_id=plugin.plugin_id,
+                required_tools=plugin.required_tools,
+                optional_tools=plugin.optional_tools,
+            )
 
 
     def get_running_instance(self, plugin_id):
