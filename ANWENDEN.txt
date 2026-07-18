@@ -1,0 +1,7 @@
+MediaHub – aktueller Toolstand
+
+1. ZIP direkt in den MediaHub-Projektordner entpacken und Dateien ersetzen.
+2. Test: python main.py
+3. Danach Git-Status prüfen.
+4. Für das nächste Hauptprogramm-Release im Release-Assistenten Version 1.0.16 verwenden.
+   Der Assistent aktualisiert die zentralen Versionsdateien automatisch.

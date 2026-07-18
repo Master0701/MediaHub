@@ -1,0 +1,143 @@
+<!DOCTYPE html
+  PUBLIC "-//W3C//DTD HTML 4.01//EN" "http://www.w3.org/TR/html4/strict.dtd">
+<html>
+   <head>
+      <meta http-equiv="Content-Type" content="text/html; charset=UTF-8">
+      <title>mkvtoolnix-gui -- Interfejs graficzny dla mkvmerge1 zawierający edytor rozdziałów i edytor
+nagłówków</title>
+      <link rel="stylesheet" type="text/css" href="mkvtoolnix-doc.css">
+   </head>
+   <body>
+      <div class="heading">mkvtoolnix-gui -- Interfejs graficzny dla <a href="mkvmerge.html"><span class="productname">mkvmerge</span>(1)</a> zawierający edytor rozdziałów i edytor
+         nagłówków</div>
+      <hr>
+      <div id="toc" class="toc">
+         <h1>Table of contents</h1>
+         <ul>
+            <li><a href="#mkvtoolnix-gui.synopsis">1. Szablon linii komend</a></li>
+            <li><a href="#mkvtoolnix-gui.description">2. Opis</a></li>
+            <li><a href="#mkvtoolnix-gui.seealso">3. Zobacz także</a></li>
+            <li><a href="#mkvtoolnix-gui.www">4. Strona www</a></li>
+         </ul>
+      </div>
+      <div class="content">
+         <h1><a name="mkvtoolnix-gui.synopsis">1. Szablon linii komend</a><a class="headerlink" href="#mkvtoolnix-gui.synopsis" title="Link to this heading">#</a></h1>
+         
+         
+         <div class="cmdsynopsis"><span class="commandname">mkvtoolnix-gui</span> [[plik-konfiguracyjny.mtxcfg] | [plik-źródłowy.xyz] | [plik-rozdziałów.xyz] | [plik-matroski.mkv]]</div>
+         
+         <h1><a name="mkvtoolnix-gui.description">2. Opis</a><a class="headerlink" href="#mkvtoolnix-gui.description" title="Link to this heading">#</a></h1>
+         
+         
+         <p>
+            <span class="productname">mkvtoolnix-gui</span>(1) jest opartym o <span class="productname">biblioteki Qt</span><sup>(tm)</sup>
+            <span class="abbrev">graficznym interfejsem</span> dla <a href="mkvmerge.html"><span class="productname">mkvmerge</span>(1)</a> (w przyszłości także
+            dla <a href="mkvinfo.html"><span class="productname">mkvinfo</span>(1)</a> i <a href="mkvextract.html"><span class="productname">mkvextract</span>(1)</a>). Oferuje on łatwy dostęp do większości funkcji
+            <a href="mkvmerge.html"><span class="productname">mkvmerge</span>(1)</a>. Wszystkie ustawienia (np. pliki źródłowe, opcje ścieżek itp)
+            mogą być zapisane i wczytane.
+            </p>
+         
+         
+         <p>
+            Użycie pliku konfiguracyjnego z rozszerzeniem <span class="literal">.mtxcfg</span>
+            powoduje, że interfejs graficzny otwiera plik konfiguracyjny w odpowiednim
+            narzędziu. Jakikolwiek plik z innym rozszerzeniem jest traktowany jako plik
+            wejściowy, jest otwierany w edytorze rozdziałów lub edytorze nagłówków
+            zależnie od ustawionego trybu. Tryb może być zmieniony opcją
+            <span class="option">--merge</span>, <span class="option">--edit-chapters</span> lub
+            <span class="option">--edit-headers</span>. Domyślny tryb to dodawanie plików celem
+            muksowania.
+            </p>
+         
+         
+         <p>
+            Zauważ, że jeśli już program działa, a będzie on jeszcze raz ponownie
+            uruchomiony, to wszystkie nazwy plików w linii komend zostaną przejęte przez
+            już działającą instancję programu.
+            </p>
+         
+         
+         <table class="variablelist">
+            <thead>
+               <tr>
+                  <th>Option</th>
+                  <th>Description</th>
+               </tr>
+            </thead>
+            <tbody>
+               <tr>
+                  <td class="varlistoption"><span class="option">--merge</span></td>
+                  <td>
+                     
+                     <p>Wszystkie poniższe nazwy plików zostaną dodane jako pliki źródłowe do
+                        bieżącego zadania multipleksowego. Jest to tryb domyślny.</p>
+                     </td>
+               </tr>
+               <tr>
+                  <td class="varlistoption"><span class="option">--info</span></td>
+                  <td>
+                     
+                     <p>Wszystkie następujące nazwy plików zostaną otwarte w narzędziu
+                        informacyjnym.</p>
+                     
+                     <p>Ponadto po uruchomieniu programu domyślnie wybierane będzie narzędzie
+                        informacyjne zamiast narzędzia multipleksera.</p>
+                     </td>
+               </tr>
+               <tr>
+                  <td class="varlistoption"><span class="option">--edit-chapters</span></td>
+                  <td>
+                     
+                     <p>Wszystkie następujące nazwy plików zostaną otwarte w edytorze rozdziałów.</p>
+                     
+                     <p>Ponadto przy uruchomieniu programu zostanie wybrany edytor rozdziałów
+                        zamiast narzędzia multipleksera.</p>
+                     </td>
+               </tr>
+               <tr>
+                  <td class="varlistoption"><span class="option">--edit-headers</span></td>
+                  <td>
+                     
+                     <p>Wszystkie następujące nazwy plików zostaną otwarte w edytorze nagłówków.</p>
+                     
+                     <p>Additionally the header editor will be selected on startup instead of the
+                        multiplexer tool.</p>
+                     </td>
+               </tr>
+               <tr>
+                  <td class="varlistoption"><span class="option">-h</span>, <span class="option">--pomoc</span></td>
+                  <td>
+                     
+                     <p>
+                        Pokaż informację o sposobie użycia opcji i wyjdź.
+                        </p>
+                     </td>
+               </tr>
+               <tr>
+                  <td class="varlistoption"><span class="option">-V</span>, <span class="option">--wersja</span></td>
+                  <td>
+                     
+                     <p>
+                        Pokaż informację o wersji i wyjdź.
+                        </p>
+                     </td>
+               </tr>
+            </tbody>
+         </table>
+         
+         <h1><a name="mkvtoolnix-gui.seealso">3. Zobacz także</a><a class="headerlink" href="#mkvtoolnix-gui.seealso" title="Link to this heading">#</a></h1>
+         
+         
+         <p>
+            <a href="mkvmerge.html"><span class="productname">mkvmerge</span>(1)</a>, <a href="mkvextract.html"><span class="productname">mkvextract</span>(1)</a>, <a href="mkvinfo.html"><span class="productname">mkvinfo</span>(1)</a>, <a href="mkvpropedit.html"><span class="productname">mkvpropedit</span>(1)</a>
+            </p>
+         
+         <h1><a name="mkvtoolnix-gui.www">4. Strona www</a><a class="headerlink" href="#mkvtoolnix-gui.www" title="Link to this heading">#</a></h1>
+         
+         
+         <p>
+            Najnowsza wersja jest zawsze dostępna pod <a href="https://mkvtoolnix.download/"> adresem domowym MKVToolNix</a>.
+            </p>
+         </div>
+   </body>
+</html>

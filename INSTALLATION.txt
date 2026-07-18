@@ -1,0 +1,11 @@
+MediaHub v1.0.15 - Scrollbares Release-Bestaetigungsfenster
+
+1. MediaHub schliessen.
+2. Inhalt dieser ZIP direkt in den MediaHub-Hauptordner entpacken.
+3. Vorhandene Datei ersetzen.
+4. MediaHub mit "python main.py" starten.
+
+Geaendert:
+- Das Bestaetigungsfenster vor der zweiten Passwortabfrage ist niedriger.
+- Release-Notizen befinden sich in einem scrollbaren Feld.
+- Die Schaltflaechen bleiben immer am unteren Fensterrand sichtbar.

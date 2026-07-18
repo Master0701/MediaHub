@@ -23,8 +23,8 @@ class PluginInfo:
     class_name: str = ""
     minimum_mediahub_version: str = ""
     permissions: list[str] = field(default_factory=list)
-    required_tools: list[str] = field(default_factory=list)
-    optional_tools: list[str] = field(default_factory=list)
+    required_tools: list[Any] = field(default_factory=list)
+    optional_tools: list[Any] = field(default_factory=list)
     has_gui: bool = False
     ui_type: str = ""
     ui_title: str = ""

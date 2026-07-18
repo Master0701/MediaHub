@@ -1,0 +1,12 @@
+{
+  "schema_version": 1,
+  "tool_id": "mkvtoolnix",
+  "name": "MKVToolNix",
+  "version": "100.0",
+  "source_url": "https://mkvtoolnix.download/windows/releases/100.0/mkvtoolnix-64-bit-100.0.7z",
+  "homepage": "https://mkvtoolnix.download/",
+  "license": "GPL-2.0-or-later",
+  "portable": true,
+  "installed_at": "2026-07-18T15:24:31.397395+00:00",
+  "executable": "mkvtoolnix\\mkvmerge.exe"
+}

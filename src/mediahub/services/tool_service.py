@@ -11,6 +11,8 @@ import urllib.parse
 import zipfile
 from datetime import datetime, timezone
 
+from src.mediahub.services.tool_catalog import PLUGIN_TOOL_INSTALLS, SEVEN_ZIP_BOOTSTRAP
+
 
 class ToolService:
     """Zentrale Verwaltung der von MediaHub und Plugins verwendeten Werkzeuge."""
@@ -75,9 +77,9 @@ class ToolService:
             "version_args": [],
             "version_probe": False,
             "first_line_only": True,
-            "release_api": "https://api.github.com/repos/MediaArea/MediaInfo/releases/latest",
-            "asset_pattern": r"MediaInfo_CLI_.*_Windows_x64\.zip$",
-            "install_kind": "github_zip",
+            "download_page": "https://mediaarea.net/en/MediaInfo/Download/Windows",
+            "asset_pattern": r"/download/binary/mediainfo/[0-9.]+/MediaInfo_CLI_[0-9.]+_Windows_x64\.zip",
+            "install_kind": "page_zip",
             "search_names": ["mediainfo.exe", "MediaInfo.exe"],
         },
         "tesseract": {
@@ -106,13 +108,26 @@ class ToolService:
             "version_args": ["--version"],
             "first_line_only": True,
             "download_page": "https://mkvtoolnix.download/downloads.html",
-            "asset_pattern": r"mkvtoolnix-64-bit-[0-9.]+-setup\.exe",
-            "install_kind": "portable_installer",
-            "installer_args": ["/S"],
-            "installer_dir_arg": "/D={path}",
+            # Immer das offizielle portable ZIP verwenden. Der EXE-Installer
+            # verlangt unter Windows erhöhte Rechte (WinError 740) und ist für
+            # die portable MediaHub-Toolverwaltung daher ungeeignet.
+            "asset_pattern": r"(?:https?://mkvtoolnix\.download)?/windows/releases/[0-9.]+/mkvtoolnix-64-bit-[0-9.]+\.zip|mkvtoolnix-64-bit-[0-9.]+\.zip",
+            "install_kind": "page_zip",
             "search_names": ["mkvmerge.exe"],
         },
     }
+
+    # Installationsdaten werden zentral aus tool_catalog.py übernommen.
+    for _tool_id, _install_data in PLUGIN_TOOL_INSTALLS.items():
+        if _tool_id in PLUGIN_TOOLS:
+            PLUGIN_TOOLS[_tool_id].update(_install_data)
+            _archive_type = str(_install_data.get("archive_type") or "")
+            PLUGIN_TOOLS[_tool_id]["install_kind"] = {
+                "github_zip": "github_zip",
+                "zip": "page_zip",
+                "7z": "page_7z",
+                "installer": "portable_installer",
+            }.get(_archive_type, PLUGIN_TOOLS[_tool_id].get("install_kind", ""))
 
     YT_DLP_URL = "https://github.com/yt-dlp/yt-dlp/releases/latest/download/yt-dlp.exe"
     DENO_URL = "https://github.com/denoland/deno/releases/latest/download/deno-x86_64-pc-windows-msvc.zip"
@@ -223,6 +238,22 @@ class ToolService:
                 # Tool-Verwaltung nicht blockieren.
                 continue
 
+    @classmethod
+    def _normalize_declared_tool_ids(cls, values) -> set[str]:
+        """Liest Tool-IDs aus alten Stringlisten und neuen Objektlisten."""
+
+        known = set(cls.all_tool_definitions())
+        result: set[str] = set()
+        for value in values or []:
+            if isinstance(value, dict):
+                raw_id = value.get("id") or value.get("tool_id") or value.get("name")
+            else:
+                raw_id = value
+            tool_id = str(raw_id or "").strip().lower()
+            if tool_id in known:
+                result.add(tool_id)
+        return result
+
     def synchronize_plugin_tools(self, plugins) -> bool:
         """Übernimmt die Tool-Nutzung aller derzeit aktivierten Plugins.
 
@@ -240,16 +271,12 @@ class ToolService:
             if not plugin_id:
                 continue
 
-            required = {
-                str(tool_id).strip().lower()
-                for tool_id in (getattr(plugin, "required_tools", None) or [])
-                if str(tool_id).strip().lower() in self.PLUGIN_TOOLS
-            }
-            optional = {
-                str(tool_id).strip().lower()
-                for tool_id in (getattr(plugin, "optional_tools", None) or [])
-                if str(tool_id).strip().lower() in self.PLUGIN_TOOLS
-            }
+            required = self._normalize_declared_tool_ids(
+                getattr(plugin, "required_tools", None) or []
+            )
+            optional = self._normalize_declared_tool_ids(
+                getattr(plugin, "optional_tools", None) or []
+            )
             optional.difference_update(required)
             new_usage[plugin_id] = {"required": required, "optional": optional}
 
@@ -295,9 +322,20 @@ class ToolService:
         """Liefert fehlende Pflichttools aller aktivierten Plugins."""
 
         result = []
-        for tool_id in sorted(self.PLUGIN_TOOLS):
+        for tool_id in sorted(self.all_tool_definitions()):
             usage = self.get_tool_usage_without_status(tool_id)
             if usage["required_by"] and not self.tool_path(tool_id).exists():
+                result.append(tool_id)
+        return result
+
+    def missing_declared_plugin_tools(self) -> list[str]:
+        """Liefert alle fehlenden von Plugins genannten Werkzeuge."""
+
+        result: list[str] = []
+        for tool_id in sorted(self.all_tool_definitions()):
+            usage = self.get_tool_usage_without_status(tool_id)
+            declared = bool(usage["required_by"] or usage["optional_by"])
+            if declared and not self.tool_path(tool_id).exists():
                 result.append(tool_id)
         return result
 
@@ -313,22 +351,98 @@ class ToolService:
         raise RuntimeError(f"Kein passendes Windows-x64-Paket für {definition['display_name']} gefunden.")
 
     def _page_download_asset(self, definition: dict) -> str:
-        page_url = str(definition["download_page"] or "")
+        page_url = str(definition.get("download_page") or "")
         request = urllib.request.Request(page_url, headers={"User-Agent": "MediaHub"})
-        with urllib.request.urlopen(request, timeout=30) as response:
-            html = response.read().decode("utf-8", errors="replace")
-        matches = re.findall(str(definition.get("asset_pattern") or ".*"), html, flags=re.IGNORECASE)
-        if not matches:
-            raise RuntimeError(f"Kein passendes Downloadpaket für {definition['display_name']} gefunden.")
-        name = sorted(set(matches), key=self._version_key, reverse=True)[0]
-        return urllib.parse.urljoin(page_url, name)
+        try:
+            with urllib.request.urlopen(request, timeout=30) as response:
+                html = response.read().decode("utf-8", errors="replace")
+            matches = re.findall(
+                str(definition.get("asset_pattern") or ".*"),
+                html,
+                flags=re.IGNORECASE,
+            )
+        except Exception:
+            matches = []
+
+        if matches:
+            name = sorted(set(matches), key=self._version_key, reverse=True)[0]
+            filename = Path(urllib.parse.urlparse(name).path).name
+            if str(definition.get("display_name") or "").lower() == "mkvtoolnix":
+                version_match = re.search(
+                    r"mkvtoolnix-64-bit-([0-9.]+)\.7z$", filename, re.IGNORECASE
+                )
+                if version_match and "/windows/releases/" not in name.lower():
+                    version = version_match.group(1)
+                    return (
+                        "https://mkvtoolnix.download/windows/releases/"
+                        f"{version}/{filename}"
+                    )
+            return urllib.parse.urljoin(page_url, name)
+
+        # Offiziell geprüfte Rückfalladressen verhindern, dass eine kleine
+        # Änderung der Downloadseite die komplette Plugin-Installation stoppt.
+        for fallback in definition.get("fallback_urls") or []:
+            if str(fallback).strip():
+                return str(fallback).strip()
+        raise RuntimeError(
+            f"Kein passendes Downloadpaket für {definition['display_name']} gefunden."
+        )
+
+    def _ensure_7zr(self, log_callback=None) -> Path:
+        bootstrap_dir = self.tools_dir / "_bootstrap" / "7zip"
+        bootstrap_dir.mkdir(parents=True, exist_ok=True)
+        executable = bootstrap_dir / str(SEVEN_ZIP_BOOTSTRAP["filename"])
+        if executable.exists() and executable.stat().st_size > 10_000:
+            return executable
+        if os.name != "nt":
+            system_7z = shutil.which("7z") or shutil.which("7za") or shutil.which("7zr")
+            if system_7z:
+                return Path(system_7z)
+            raise RuntimeError("Zum Entpacken der 7z-Datei wurde kein 7-Zip-Programm gefunden.")
+        if log_callback:
+            log_callback("Lade den portablen 7-Zip-Entpacker herunter …")
+        self.download_file(str(SEVEN_ZIP_BOOTSTRAP["url"]), executable, log_callback)
+        if not executable.exists() or executable.stat().st_size <= 10_000:
+            raise RuntimeError("Der portable 7-Zip-Entpacker konnte nicht eingerichtet werden.")
+        return executable
+
+    def _extract_7z(self, archive: Path, destination: Path, log_callback=None) -> None:
+        extractor = self._ensure_7zr(log_callback=log_callback)
+        destination.mkdir(parents=True, exist_ok=True)
+        result = subprocess.run(
+            [str(extractor), "x", str(archive), f"-o{destination}", "-y"],
+            capture_output=True,
+            text=True,
+            timeout=900,
+        )
+        if result.returncode != 0:
+            output = "\n".join(x for x in [result.stdout, result.stderr] if x).strip()
+            raise RuntimeError(output or f"7-Zip-Fehlercode {result.returncode}")
+
+    @staticmethod
+    def _copy_extracted_files(extract: Path, target_folder: Path) -> None:
+        files = [item for item in extract.rglob("*") if item.is_file()]
+        if not files:
+            raise RuntimeError("Das entpackte Paket enthält keine Dateien.")
+        # Gemeinsamen obersten Verpackungsordner nur dann entfernen, wenn alle
+        # Dateien tatsächlich in demselben Unterordner liegen.
+        first_parts = {item.relative_to(extract).parts[0] for item in files}
+        flatten = len(first_parts) == 1 and all(
+            len(item.relative_to(extract).parts) > 1 for item in files
+        )
+        for item in files:
+            rel = item.relative_to(extract)
+            parts = rel.parts[1:] if flatten else rel.parts
+            destination = target_folder.joinpath(*parts)
+            destination.parent.mkdir(parents=True, exist_ok=True)
+            shutil.copy2(item, destination)
 
     def install_plugin_tool(self, tool_id: str, log_callback=None) -> dict:
         """Installiert ein Plugin-Werkzeug portabel unter MediaHub/tools."""
 
         normalized = str(tool_id or "").strip().lower()
-        if normalized not in self.PLUGIN_TOOLS:
-            raise KeyError(f"Unbekanntes Plugin-Tool: {tool_id}")
+        if normalized not in self.all_tool_definitions():
+            raise KeyError(f"Unbekanntes Tool: {tool_id}")
         definition = self.PLUGIN_TOOLS[normalized]
         target_folder = self._tool_folder(normalized)
         target_folder.mkdir(parents=True, exist_ok=True)
@@ -345,25 +459,31 @@ class ToolService:
             shutil.copytree(target_folder, backup)
         try:
             kind = str(definition.get("install_kind") or "")
-            if kind == "github_zip":
-                source_url, version = self._github_release_asset(definition)
-                archive = stage / "package.zip"
+            if kind in {"github_zip", "page_zip", "page_7z"}:
+                if kind == "github_zip":
+                    source_url, version = self._github_release_asset(definition)
+                else:
+                    source_url = self._page_download_asset(definition)
+                    match = re.search(r"MediaInfo_CLI_([0-9.]+)_Windows_x64", source_url, re.IGNORECASE)
+                    if not match:
+                        match = re.search(r"mkvtoolnix-64-bit-([0-9.]+)\.(?:zip|7z)", source_url, re.IGNORECASE)
+                    version = match.group(1) if match else ""
+                suffix = ".7z" if kind == "page_7z" else ".zip"
+                archive = stage / f"package{suffix}"
                 if log_callback:
                     log_callback(f"Lade {definition['display_name']} portabel herunter …")
                 self.download_file(source_url, archive, log_callback)
-                if not zipfile.is_zipfile(archive):
-                    raise RuntimeError("Das geladene Paket ist keine gültige ZIP-Datei.")
                 extract = stage / "extract"
-                with zipfile.ZipFile(archive, "r") as zf:
-                    zf.extractall(extract)
-                for item in extract.rglob("*"):
-                    if item.is_file():
-                        rel = item.relative_to(extract)
-                        # Ein einzelner Verpackungsordner wird abgeflacht.
-                        parts = rel.parts[1:] if len(rel.parts) > 1 else rel.parts
-                        destination = target_folder.joinpath(*parts)
-                        destination.parent.mkdir(parents=True, exist_ok=True)
-                        shutil.copy2(item, destination)
+                if kind == "page_7z":
+                    if log_callback:
+                        log_callback(f"Entpacke {definition['display_name']} portabel …")
+                    self._extract_7z(archive, extract, log_callback=log_callback)
+                else:
+                    if not zipfile.is_zipfile(archive):
+                        raise RuntimeError("Das geladene Paket ist keine gültige ZIP-Datei.")
+                    with zipfile.ZipFile(archive, "r") as zf:
+                        zf.extractall(extract)
+                self._copy_extracted_files(extract, target_folder)
             elif kind == "portable_installer":
                 source_url = self._page_download_asset(definition)
                 installer = stage / Path(urllib.parse.urlparse(source_url).path).name
@@ -409,11 +529,44 @@ class ToolService:
             shutil.rmtree(backup, ignore_errors=True)
 
     def install_missing_required_plugin_tools(self, log_callback=None) -> list[dict]:
-        """Installiert ausschließlich fehlende Pflichttools aktivierter Plugins."""
+        """Kompatibilitätsmethode: installiert alle von Plugins genannten Tools."""
 
-        installed = []
-        for tool_id in self.missing_required_plugin_tools():
-            installed.append(self.install_plugin_tool(tool_id, log_callback=log_callback))
+        return self.install_missing_declared_plugin_tools(log_callback=log_callback)
+
+    def install_missing_declared_plugin_tools(self, log_callback=None) -> list[dict]:
+        """Installiert fehlende Pflicht- und optionale Plugin-Werkzeuge."""
+
+        installed: list[dict] = []
+        missing = self.missing_declared_plugin_tools()
+
+        for tool_id in missing:
+            definition = self.tool_definition(tool_id)
+            if log_callback:
+                log_callback(f"{definition['display_name']} fehlt und wird eingerichtet …")
+
+            if tool_id in self.PLUGIN_TOOLS:
+                installed.append(
+                    self.install_plugin_tool(tool_id, log_callback=log_callback)
+                )
+                continue
+
+            before = set(self.missing_tools())
+            self.download_missing_tools(log_callback=log_callback)
+            after = set(self.missing_tools())
+            filename = str(definition.get("exe") or "")
+            if filename in before and filename not in after:
+                installed.append(
+                    self.get_tool_status(tool_id, include_version=True)
+                )
+
+        for tool_id in sorted(self.all_tool_definitions()):
+            usage = self.get_tool_usage_without_status(tool_id)
+            if not (usage["required_by"] or usage["optional_by"]):
+                continue
+            if self.tool_path(tool_id).exists() and tool_id not in missing and log_callback:
+                name = self.tool_definition(tool_id).get("display_name", tool_id)
+                log_callback(f"{name} ist bereits vorhanden und wird übersprungen.")
+
         return installed
 
     def install_missing_required_tools(self, log_callback=None) -> list[dict]:
@@ -442,7 +595,7 @@ class ToolService:
                     installed.append(self.get_tool_status(tool_id, include_version=True))
 
         installed.extend(
-            self.install_missing_required_plugin_tools(log_callback=log_callback)
+            self.install_missing_declared_plugin_tools(log_callback=log_callback)
         )
         return installed
 
@@ -466,16 +619,8 @@ class ToolService:
         if not normalized_plugin_id:
             return
 
-        required = {
-            str(tool_id).strip().lower()
-            for tool_id in (required_tools or [])
-            if str(tool_id).strip().lower() in self.PLUGIN_TOOLS
-        }
-        optional = {
-            str(tool_id).strip().lower()
-            for tool_id in (optional_tools or [])
-            if str(tool_id).strip().lower() in self.PLUGIN_TOOLS
-        }
+        required = self._normalize_declared_tool_ids(required_tools or [])
+        optional = self._normalize_declared_tool_ids(optional_tools or [])
         optional.difference_update(required)
 
         new_value = {"required": required, "optional": optional}
@@ -540,10 +685,9 @@ class ToolService:
         required_by: list[str] = []
         optional_by: list[str] = []
 
-        if normalized in self.PLUGIN_TOOLS:
-            usage = self.get_tool_usage_without_status(normalized)
-            required_by = usage["required_by"]
-            optional_by = usage["optional_by"]
+        usage = self.get_tool_usage_without_status(normalized)
+        required_by = usage["required_by"]
+        optional_by = usage["optional_by"]
 
         used_by = ["MediaHub"] if normalized in self.CORE_TOOLS else []
         used_by.extend(required_by)

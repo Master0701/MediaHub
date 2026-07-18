@@ -1,0 +1,12 @@
+{
+  "schema_version": 1,
+  "tool_id": "tesseract",
+  "name": "Tesseract OCR",
+  "version": "tesseract-v5.5.2",
+  "source_url": "https://github.com/Master0701/MediaHub_Tools/releases/download/tesseract-v5.5.2/Tesseract-Projekt.zip",
+  "homepage": "https://github.com/tesseract-ocr/tesseract",
+  "license": "Apache-2.0",
+  "portable": true,
+  "installed_at": "2026-07-18T19:56:17.628080+00:00",
+  "executable": "tesseract\\tesseract.exe"
+}

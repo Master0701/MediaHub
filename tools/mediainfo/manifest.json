@@ -1,0 +1,12 @@
+{
+  "schema_version": 1,
+  "tool_id": "mediainfo",
+  "name": "MediaInfo",
+  "version": "26.05",
+  "source_url": "https://mediaarea.net/download/binary/mediainfo/26.05/MediaInfo_CLI_26.05_Windows_x64.zip",
+  "homepage": "https://mediaarea.net/MediaInfo",
+  "license": "BSD-2-Clause",
+  "portable": true,
+  "installed_at": "2026-07-18T14:54:10.346884+00:00",
+  "executable": "mediainfo\\mediainfo.exe"
+}

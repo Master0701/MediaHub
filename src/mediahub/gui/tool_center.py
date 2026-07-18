@@ -135,6 +135,9 @@ class ToolAssistant(QDialog):
     def __init__(self, tool_service, parent=None):
         super().__init__(parent)
         self.tool_service = tool_service
+        # Beim Öffnen bleibt der Assistent schnell. Erst nach „Alles prüfen“
+        # werden die Programme für ihre genaue Versionsausgabe gestartet.
+        self._versions_checked = False
         self.setWindowTitle("MediaHub Tool-Assistent")
         self.resize(700, 520)
         self.setMinimumSize(620, 440)
@@ -183,7 +186,9 @@ class ToolAssistant(QDialog):
         self.refresh()
 
     def refresh(self) -> None:
-        data = self.tool_service.get_tool_assistant_status(include_versions=True)
+        data = self.tool_service.get_tool_assistant_status(
+            include_versions=self._versions_checked
+        )
         summary = data.get("summary") or {}
         self.status_label.setText(
             f"Installiert: {summary.get('installed', 0)}  |  "
@@ -196,8 +201,13 @@ class ToolAssistant(QDialog):
             symbol = "✓" if tool.get("installed") else "✗"
             update = str(tool.get("update_status") or "Noch nicht geprüft")
             usage = ", ".join(tool.get("used_by") or []) or "nicht verwendet"
+            raw_version = str(tool.get("version") or "").strip()
+            if not self._versions_checked and raw_version in {"", "nicht geprüft"}:
+                version = "wird mit ‚Alles prüfen‘ ermittelt"
+            else:
+                version = raw_version or "unbekannt"
             lines.append(
-                f"{symbol} {tool.get('display_name')} — {tool.get('version', 'unbekannt')}"
+                f"{symbol} {tool.get('display_name')} — {version}"
                 f"\n   Update: {update} | Benutzt von: {usage}"
             )
         self.details.setText("\n\n".join(lines))
@@ -209,6 +219,7 @@ class ToolAssistant(QDialog):
         try:
             results = self.tool_service.check_all_tool_updates()
             available = [item for item in results if item.get("update_available") is True]
+            self._versions_checked = True
             QMessageBox.information(
                 self,
                 "Tool-Assistent",

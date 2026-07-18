@@ -15,6 +15,7 @@ def _mediahub_utf8_env():
 from PySide6.QtCore import QProcess, QProcessEnvironment, Qt
 from PySide6.QtWidgets import (
     QDialog,
+    QDialogButtonBox,
     QFrame,
     QGridLayout,
     QGroupBox,
@@ -364,22 +365,7 @@ class ReleaseAssistantDialog(QDialog):
             self.append_log("Release abgebrochen: Release-Notizen fehlen.")
             return
 
-        preview = self.release_notes_text
-        if len(preview) > 1600:
-            preview = preview[:1600].rstrip() + "\n\n[...]"
-
-        answer = QMessageBox.question(
-            self,
-            "Komplettes Release veröffentlichen",
-            f"MediaHub v{version} vollständig veröffentlichen?\n\n"
-            "Der Assistent aktualisiert die Version, baut EXE, Setup und Handbücher, "
-            "erstellt Commit und Tag und überträgt alles zu GitHub.\n\n"
-            "Folgende Release-Notizen werden verwendet:\n\n"
-            f"{preview}",
-            QMessageBox.Yes | QMessageBox.No,
-            QMessageBox.No,
-        )
-        if answer != QMessageBox.Yes:
+        if not self._confirm_release_overview(version):
             self.append_log("Release-Veröffentlichung abgebrochen.")
             return
 
@@ -390,6 +376,65 @@ class ReleaseAssistantDialog(QDialog):
             [(f"MediaHub v{version} vollständig veröffentlichen", [sys.executable, str(script), version])],
             after_finish=self.finish_successful_release,
         )
+
+
+    def _confirm_release_overview(self, version: str) -> bool:
+        """Zeigt eine kompakte, scrollbar aufgebaute Release-Bestätigung."""
+        dialog = QDialog(self)
+        dialog.setWindowTitle("Komplettes Release veröffentlichen")
+        dialog.resize(760, 520)
+        dialog.setMinimumSize(640, 420)
+        dialog.setMaximumHeight(680)
+
+        layout = QVBoxLayout(dialog)
+        layout.setContentsMargins(18, 18, 18, 18)
+        layout.setSpacing(12)
+
+        heading = QLabel(f"MediaHub v{version} vollständig veröffentlichen?")
+        heading.setStyleSheet("font-size: 14pt; font-weight: 800;")
+        heading.setWordWrap(True)
+        layout.addWidget(heading)
+
+        explanation = QLabel(
+            "Der Assistent aktualisiert die Version, baut EXE, Setup und "
+            "Handbücher, erstellt Commit und Tag und überträgt alles zu "
+            "GitHub. Danach folgt die zweite Passwortabfrage."
+        )
+        explanation.setWordWrap(True)
+        layout.addWidget(explanation)
+
+        notes_label = QLabel("Folgende Release-Notizen werden verwendet:")
+        notes_label.setStyleSheet("font-weight: 700;")
+        layout.addWidget(notes_label)
+
+        notes = QPlainTextEdit()
+        notes.setReadOnly(True)
+        notes.setPlainText(self.release_notes_text)
+        notes.setMinimumHeight(220)
+        notes.setLineWrapMode(QPlainTextEdit.LineWrapMode.WidgetWidth)
+        notes.moveCursor(notes.textCursor().MoveOperation.Start)
+        layout.addWidget(notes, 1)
+
+        buttons = QDialogButtonBox(
+            QDialogButtonBox.StandardButton.Yes
+            | QDialogButtonBox.StandardButton.Cancel
+        )
+        yes_button = buttons.button(QDialogButtonBox.StandardButton.Yes)
+        cancel_button = buttons.button(QDialogButtonBox.StandardButton.Cancel)
+        if yes_button is not None:
+            yes_button.setText("Ja, weiter zur Passwortabfrage")
+            yes_button.setDefault(False)
+            yes_button.setAutoDefault(False)
+        if cancel_button is not None:
+            cancel_button.setText("Abbrechen")
+            cancel_button.setDefault(True)
+            cancel_button.setAutoDefault(True)
+
+        buttons.accepted.connect(dialog.accept)
+        buttons.rejected.connect(dialog.reject)
+        layout.addWidget(buttons)
+
+        return dialog.exec() == QDialog.DialogCode.Accepted
 
     def _confirm_release_password(self, version: str) -> bool:
         """Verlangt unmittelbar vor der Veröffentlichung einen neuen Einmal-Code."""

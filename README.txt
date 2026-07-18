@@ -1,17 +1,10 @@
-MediaHub Plugin Write-API Fix 5 – korrigierte Version
+MediaHub v1.0.15 – Tool-Assistent Prüfstatus-Fix
 
-1. ZIP in den MediaHub-Hauptordner entpacken.
-2. PowerShell im MediaHub-Hauptordner öffnen.
-3. Ausführen:
+Ersetzt:
+src\mediahub\gui\tool_center.py
 
-   python apply_plugin_write_api_fix5_fixed.py
-
-Der Fix:
-- sucht die vollständige MediaHubPluginAPI(...)‑Klammer korrekt,
-- erstellt Sicherungen,
-- prüft beide geänderten Python-Dateien,
-- rollt bei einem Fehler automatisch zurück.
-
-Danach testen:
-
-   python main.py
+Änderungen:
+- Der Tool-Assistent öffnet weiterhin schnell ohne sofortige Versionsaufrufe.
+- Vor der Prüfung steht verständlich „wird mit Alles prüfen ermittelt“ statt „nicht geprüft“.
+- Nach „Alles prüfen“ werden die echten installierten Versionen geladen und angezeigt.
+- Die Update-Prüfergebnisse bleiben nach der Prüfung sichtbar.

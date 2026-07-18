@@ -1,0 +1,196 @@
+<!doctype html>
+<html lang="de">
+<head>
+<meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>MediaHub KI-Assistent</title>
+<style>
+:root{color-scheme:dark;font-family:system-ui,sans-serif}
+body{margin:0;background:#111827;color:#e5e7eb}
+main{max-width:1050px;margin:auto;padding:28px}
+.muted{color:#9ca3af}.tabs{display:flex;gap:8px;margin:22px 0;flex-wrap:wrap}
+button{padding:10px 13px;border-radius:9px;border:1px solid #4b5563;cursor:pointer}
+button:disabled{opacity:.45;cursor:not-allowed}
+.panel{display:none}.panel.active{display:block}
+.card{background:#1f2937;border:1px solid #374151;border-radius:14px;padding:18px;margin-bottom:16px}
+pre{white-space:pre-wrap;word-break:break-word;background:#0b1220;padding:14px;border-radius:10px}
+.ok{color:#86efac}.toolbar{display:flex;gap:8px;align-items:center;flex-wrap:wrap}
+</style>
+</head>
+<body><main>
+<h1>MediaHub KI-Assistent</h1>
+<div class="muted">Version 0.4.1 · nativer Datei-Öffnen-Dialog</div>
+
+<div class="tabs">
+<button onclick="showTab('status')">Systemstatus</button>
+<button onclick="showTab('analysis')">Dateianalyse</button>
+<button onclick="showTab('knowledge')">Wissenssuche</button>
+</div>
+
+<section id="status" class="panel active">
+<div class="card">
+<h2>Systemstatus</h2>
+<div id="summary">Status wird geladen …</div>
+<button onclick="loadStatus()">Aktualisieren</button>
+</div>
+<div class="card"><pre id="details">–</pre></div>
+</section>
+
+<section id="analysis" class="panel">
+<div class="card">
+<h2>Videodatei auswählen</h2>
+<p>Der Button öffnet denselben normalen Datei-Öffnen-Dialog wie im MediaHub-Desktopprogramm.</p>
+<div class="toolbar">
+<button id="selectButton" onclick="nativeSelect()">Datei öffnen und analysieren</button>
+<button id="openButton" onclick="openLast()" disabled>Analysierte Datei abspielen</button>
+</div>
+<p class="muted">Der Öffnen-Dialog erscheint auf dem Rechner, auf dem MediaHub läuft.</p>
+</div>
+<div class="card">
+<h2>Analyse</h2>
+<div id="analysisSummary" class="card" style="background:#0b1220">Noch keine Datei ausgewählt.</div><details style="margin-top:14px"><summary>Technische Rohdaten anzeigen</summary><pre id="analysisResult">–</pre></details>
+</div>
+</section>
+
+<section id="knowledge" class="panel">
+<div class="card">
+<h2>Lokale Wissenssuche</h2>
+<p>Durchsucht Titel, Aliasnamen und gespeicherte Beziehungen in knowledge.sqlite3.</p>
+<div class="toolbar">
+<input id="knowledgeQuery" placeholder="Zum Beispiel: 12 Monkeys"
+ style="min-width:280px;padding:10px 13px;border-radius:9px;border:1px solid #4b5563;background:#111827;color:#e5e7eb">
+<button onclick="searchKnowledge()">Suchen</button>
+<button onclick="seedKnowledge()">Testdaten anlegen</button>
+</div>
+</div>
+<div class="card">
+<pre id="knowledgeResult">Noch keine Suche durchgeführt.</pre>
+</div>
+</section>
+
+<script>
+
+function esc(v){return String(v??'-').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#039;'}[c]))}
+function renderAnalysis(j){
+ const i=j.identification||{},s=j.summary||{},c=j.cache||{};
+ const seconds=Number(s.duration_seconds||0);
+ const duration=seconds?String(Math.floor(seconds/60)).padStart(2,'0')+':'+String(Math.round(seconds%60)).padStart(2,'0')+' Minuten':'-';
+ const warnings=(j.warnings&&j.warnings.length)?j.warnings.map(esc).join('<br>'):'Keine';
+ document.getElementById('analysisSummary').innerHTML=
+ `<h3>Erkennungsvorschlag</h3>
+  <p><b>Typ:</b> ${esc(i.media_type)}</p>
+  <p><b>Titel:</b> ${esc(i.title_candidate)}</p>
+  <p><b>Staffel/Folge:</b> ${esc(i.season)} / ${esc(i.episode)}</p>
+  <p><b>Fassung:</b> ${esc(i.edition_candidate)}</p>
+  <p><b>Sicherheit Dateiname:</b> ${Math.round(Number(i.confidence||0)*100)} %</p>
+  <hr>
+  <p><b>Laufzeit:</b> ${duration}</p>
+  <p><b>Video:</b> ${esc(s.video_codec)} · ${esc(s.width)} × ${esc(s.height)}</p>
+  <p><b>HDR/Dolby Vision:</b> ${esc(s.hdr_format)}</p>
+  <p><b>Ton / Untertitel / Kapitel:</b> ${esc(s.audio_tracks)} / ${esc(s.subtitle_tracks)} / ${esc(s.chapters)}</p>
+  <p><b>Analyse:</b> ${c.hit?'aus Cache':'neu durchgeführt'} · ${esc((j.methods_used||[]).join(', '))}</p>
+  <p><b>Warnungen:</b><br>${warnings}</p>`;
+ document.getElementById('analysisResult').textContent=JSON.stringify(j,null,2);
+}
+
+
+let knowledgeIndex=null;
+
+function normalizeKnowledgeText(value){
+ return String(value||'')
+   .normalize('NFD')
+   .replace(/[\u0300-\u036f]/g,'')
+   .toLowerCase()
+   .replace(/[^a-z0-9]+/g,' ')
+   .replace(/\s+/g,' ')
+   .trim();
+}
+
+async function loadKnowledgeIndex(force=false){
+ if(knowledgeIndex && !force) return knowledgeIndex;
+ const r=await fetch('/ai-assistant/api/knowledge/index',{cache:'no-store'});
+ const j=await r.json();
+ if(!r.ok) throw new Error(j.error||'Wissensindex konnte nicht geladen werden.');
+ knowledgeIndex=j;
+ return j;
+}
+
+async function searchKnowledge(){
+ const out=document.getElementById('knowledgeResult');
+ const q=document.getElementById('knowledgeQuery').value.trim();
+ if(!q){out.textContent='Bitte einen Suchbegriff eingeben.';return}
+ out.textContent='Suche läuft …';
+ try{
+   const index=await loadKnowledgeIndex();
+   const nq=normalizeKnowledgeText(q);
+   const results=(index.results||[]).filter(item=>{
+     const values=[
+       item.canonical_title,
+       item.original_title,
+       ...(item.aliases||[]),
+       ...((item.relations||[]).map(r=>r.target_title))
+     ];
+     return values.some(v=>normalizeKnowledgeText(v).includes(nq));
+   });
+   out.textContent=JSON.stringify({
+     query:q,
+     results,
+     stats:index.stats||{}
+   },null,2);
+ }catch(e){out.textContent=String(e)}
+}
+async function seedKnowledge(){
+ const out=document.getElementById('knowledgeResult');
+ out.textContent='Testdaten werden angelegt …';
+ try{
+   const r=await fetch('/ai-assistant/api/knowledge/seed',{cache:'no-store'});
+   const j=await r.json();
+   if(!r.ok)throw new Error(j.error||'Testdaten konnten nicht angelegt werden.');
+   knowledgeIndex=null;
+   out.textContent=JSON.stringify(j,null,2);
+ }catch(e){out.textContent=String(e)}
+}
+
+function showTab(id){
+ document.querySelectorAll('.panel').forEach(p=>p.classList.remove('active'));
+ document.getElementById(id).classList.add('active');
+}
+async function nativeSelect(){
+ const out=document.getElementById('analysisResult');
+ const summary=document.getElementById('analysisSummary');
+ const select=document.getElementById('selectButton');
+ select.disabled=true;
+ summary.textContent='Der Datei-Öffnen-Dialog wurde im MediaHub-Programm geöffnet …';
+ out.textContent='–';
+ try{
+   const r=await fetch('/ai-assistant/api/native-select',{cache:'no-store'});
+   const j=await r.json();
+   if(!r.ok)throw new Error(j.error||'Dateiauswahl fehlgeschlagen.');
+   if(j.cancelled){summary.textContent=j.message||'Keine Datei ausgewählt.';return}
+   document.getElementById('openButton').disabled=false;
+   renderAnalysis(j);
+ }catch(e){
+   summary.textContent=String(e);
+ }finally{
+   select.disabled=false;
+ }
+}
+async function openLast(){
+ const out=document.getElementById('analysisResult');
+ try{
+   const r=await fetch('/ai-assistant/api/open-last',{cache:'no-store'});
+   const j=await r.json();
+   if(!r.ok)throw new Error(j.error||'Datei konnte nicht geöffnet werden.');
+   out.textContent='Datei wurde auf dem MediaHub-PC geöffnet.\n\n'+out.textContent;
+ }catch(e){out.textContent=String(e)}
+}
+async function loadStatus(){
+ const d=document.getElementById('details'),s=document.getElementById('summary');
+ try{
+   const r=await fetch('/ai-assistant/api/status',{cache:'no-store'}),j=await r.json();
+   s.innerHTML=`<p class="ok">Plugin aktiv</p><p>MediaHub-Datenbank: ${j.mediahub_database?.exists?'gefunden':'nicht gefunden'}</p>`;
+   d.textContent=JSON.stringify(j,null,2);
+ }catch(e){s.textContent='Fehler';d.textContent=String(e)}
+}
+loadStatus();
+</script>
+</main></body></html>

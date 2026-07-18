@@ -7,6 +7,6 @@
   "homepage": "https://github.com/yt-dlp/yt-dlp",
   "license": "Unlicense",
   "portable": true,
-  "installed_at": "2026-07-18T12:50:24.887987+00:00",
+  "installed_at": "2026-07-18T14:36:02.849015+00:00",
   "executable": "yt-dlp\\yt-dlp.exe"
 }

@@ -1,0 +1,66 @@
+{
+  "id": "mediahub.ai_assistant",
+  "name": "MediaHub KI-Assistent",
+  "version": "0.4.1",
+  "author": "Master0701",
+  "description": "Lokaler MediaHub-KI-Assistent mit Medienanalyse, Cache und erster durchsuchbarer Wissensengine für Titel, Aliase und Beziehungen.",
+  "type": "tool",
+  "enabled": true,
+  "entry": "plugin.py",
+  "icon": "",
+  "safe_mode": true,
+  "minimum_mediahub_version": "1.0.5",
+  "minimum_mediahub": "1.0.5",
+  "shared_runtime": "mediahub_web_core",
+  "network_scope": "local_only",
+  "class_name": "MediaHubAIAssistantPlugin",
+  "permissions": [
+    "read_library",
+    "read_system",
+    "read_plugins",
+    "database.mediahub.read",
+    "database.knowledge.read_write",
+    "filesystem.media.read",
+    "network.local"
+  ],
+  "has_settings": true,
+  "ui": {
+    "enabled": true,
+    "type": "window",
+    "title": "KI-Assistent",
+    "icon": "",
+    "order": 40,
+    "web": {
+      "enabled": true,
+      "title": "KI-Assistent",
+      "route": "/ai-assistant",
+      "icon": "",
+      "order": 40,
+      "shell": false
+    }
+  },
+  "required_tools": [
+    {
+      "id": "ffprobe",
+      "required": true,
+      "provided_by": "mediahub"
+    },
+    {
+      "id": "mediainfo",
+      "required": true,
+      "provided_by": "mediahub_tool_manager"
+    }
+  ],
+  "optional_tools": [
+    {
+      "id": "tesseract",
+      "required": false,
+      "feature": "ocr"
+    },
+    {
+      "id": "mkvtoolnix",
+      "required": false,
+      "feature": "mkv_analysis_and_editing"
+    }
+  ]
+}
