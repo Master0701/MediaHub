@@ -9,7 +9,8 @@ class HelpLoader:
     """Lädt den erzeugten help_index.json."""
 
     def __init__(self, base_dir=None):
-        self.base_dir = Path(base_dir or Path.cwd())
+        self._explicit_base_dir = base_dir is not None
+        self.base_dir = Path(base_dir) if base_dir is not None else Path.cwd()
 
     def runtime_root(self) -> Path:
         if getattr(sys, "frozen", False):
@@ -32,7 +33,12 @@ class HelpLoader:
             folders.append(meipass / "assets" / "docs")
 
         folders.append(self.base_dir / "assets" / "docs")
-        folders.append(self.runtime_root() / "assets" / "docs")
+
+        # Bei einem ausdrücklich übergebenen Basisordner (z. B. Tests oder
+        # ein portables Datenverzeichnis) darf nicht still auf die
+        # Projektdokumentation zurückgefallen werden.
+        if not self._explicit_base_dir:
+            folders.append(self.runtime_root() / "assets" / "docs")
 
         return folders
 

@@ -176,7 +176,7 @@ class MainWindow(QMainWindow):
 
         tools_menu = menu.addMenu("Werkzeuge")
         tools_menu.addAction("Tool-Center", self.open_tool_center)
-        tools_menu.addAction("Tools prüfen", self.check_tools_on_start)
+        tools_menu.addAction("Tool-Assistent", self.open_tool_assistant)
         tools_menu.addSeparator()
         tools_menu.addAction("🖼 Bilddiagnose", self.open_image_diagnostics)
         tools_menu.addAction("🛠 Bildstruktur reparieren", self.rebuild_image_assets_from_gui)
@@ -1081,6 +1081,9 @@ class MainWindow(QMainWindow):
     def open_tool_center(self):
         self.tool_manager.open_tool_center()
 
+    def open_tool_assistant(self):
+        self.tool_manager.open_tool_assistant()
+
     def check_tools_on_start(self):
         self.tool_manager.check_tools_on_start()
 
@@ -1805,13 +1808,11 @@ class MainWindow(QMainWindow):
         db_path = self.base_dir / "config" / "mediahub.sqlite3"
         add(db_path.exists(), "Datenbankdatei", db_path if db_path.exists() else f"nicht gefunden: {db_path}")
 
-        for tool_name in ("yt-dlp.exe", "ffmpeg.exe", "ffprobe.exe", "deno.exe"):
-            local_tool = self.base_dir / "tools" / tool_name
-            system_tool = shutil.which(tool_name)
+        for tool_id in ("yt-dlp", "ffmpeg", "ffprobe", "deno"):
+            local_tool = self.tool_service.tool_path(tool_id)
+            tool_name = local_tool.name
             if local_tool.exists():
-                add(True, tool_name, f"lokal gefunden: {local_tool}")
-            elif system_tool:
-                add(True, tool_name, f"im Systempfad gefunden: {system_tool}")
+                add(True, tool_name, f"portabel gefunden: {local_tool}")
             else:
                 add(False, tool_name, "fehlt; bitte im Tool-Center installieren/prüfen")
 

@@ -119,14 +119,7 @@ class PluginCenter(QWidget):
         if self.tool_service is None:
             return
 
-        self.tool_service.clear_plugin_tool_usage()
-
-        for plugin in self.plugins:
-            self.tool_service.register_plugin_tools(
-                plugin_id=plugin.plugin_id,
-                required_tools=plugin.required_tools,
-                optional_tools=plugin.optional_tools,
-            )
+        self.tool_service.synchronize_plugin_tools(self.plugins)
 
 
     def get_running_instance(self, plugin_id):

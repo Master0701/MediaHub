@@ -1,0 +1,12 @@
+{
+  "schema_version": 1,
+  "tool_id": "deno",
+  "name": "Deno",
+  "version": "deno 2.9.3 (stable, release, x86_64-pc-windows-msvc)",
+  "source_url": "https://github.com/denoland/deno/releases/latest/download/deno-x86_64-pc-windows-msvc.zip",
+  "homepage": "https://deno.com/",
+  "license": "MIT",
+  "portable": true,
+  "installed_at": "2026-07-18T12:50:47.881472+00:00",
+  "executable": "deno\\deno.exe"
+}

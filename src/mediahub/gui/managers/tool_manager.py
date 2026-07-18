@@ -1,6 +1,6 @@
 from PySide6.QtWidgets import QMessageBox
 
-from src.mediahub.gui.tool_center import ToolCenter
+from src.mediahub.gui.tool_center import ToolAssistant, ToolCenter
 
 
 class ToolManager:
@@ -18,6 +18,10 @@ class ToolManager:
 
     def open_tool_center(self):
         dialog = ToolCenter(self.tool_service, self.main_window)
+        dialog.exec()
+
+    def open_tool_assistant(self):
+        dialog = ToolAssistant(self.tool_service, self.main_window)
         dialog.exec()
 
     def check_tools_on_start(self):

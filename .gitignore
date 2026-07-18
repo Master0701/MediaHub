@@ -157,3 +157,19 @@ apply_part8_*.py
 *.before_*
 *.fix*_backup
 PRUEFBERICHT_*.md
+###############################################################################
+# Tool-Manager-Arbeitsordner
+###############################################################################
+
+tools/backups/
+tools/cache/
+tools/downloads/
+tools/temp/
+tools/work/
+tools/logs/
+*.new
+
+
+# Portable Tool-Installationen
+# Binärdateien bleiben durch tools/**/*.exe, *.dll und Archive ignoriert.
+# manifest.json-Dateien werden absichtlich versioniert.

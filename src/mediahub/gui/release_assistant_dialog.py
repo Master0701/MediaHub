@@ -158,6 +158,7 @@ class ReleaseAssistantDialog(QDialog):
             ("tools", "Werkzeuge"),
             ("git", "Git"),
             ("github", "GitHub"),
+            ("licenses", "Lizenzen"),
         ]
         for row, (key, label) in enumerate(rows):
             status_layout.addWidget(QLabel(label + ":"), row, 0)
@@ -258,6 +259,19 @@ class ReleaseAssistantDialog(QDialog):
                 github_ok = False
         self.set_status("github", "✔ GitHub-Remote gefunden" if github_ok else "⚠ GitHub-Remote nicht erkannt")
 
+        license_paths = [
+            self.root_dir / "THIRD_PARTY_NOTICES.md",
+            self.root_dir / "THIRD_PARTY_LICENSES.md",
+            self.root_dir / "licenses" / "Apache-2.0.txt",
+            self.root_dir / "licenses" / "BSD-2-Clause.txt",
+            self.root_dir / "licenses" / "GPL-2.0.txt",
+            self.root_dir / "licenses" / "LGPL-3.0.txt",
+            self.root_dir / "licenses" / "MIT.txt",
+            self.root_dir / "licenses" / "Unlicense.txt",
+        ]
+        licenses_ok = all(path.exists() and path.stat().st_size > 0 for path in license_paths)
+        self.set_status("licenses", "✔ Pflicht-Lizenzdateien vollständig" if licenses_ok else "⚠ Pflicht-Lizenzdateien fehlen")
+
         self.load_release_notes()
 
         self.append_log("Statusprüfung fertig.")
@@ -311,6 +325,27 @@ class ReleaseAssistantDialog(QDialog):
         version = self.version_input.text().strip().lstrip("v")
         if not version:
             QMessageBox.warning(self, "Version fehlt", "Bitte eine neue Versionsnummer eingeben, zum Beispiel 1.0.4.")
+            return
+
+        required_licenses = [
+            self.root_dir / "THIRD_PARTY_NOTICES.md",
+            self.root_dir / "THIRD_PARTY_LICENSES.md",
+            self.root_dir / "licenses" / "Apache-2.0.txt",
+            self.root_dir / "licenses" / "BSD-2-Clause.txt",
+            self.root_dir / "licenses" / "GPL-2.0.txt",
+            self.root_dir / "licenses" / "LGPL-3.0.txt",
+            self.root_dir / "licenses" / "MIT.txt",
+            self.root_dir / "licenses" / "Unlicense.txt",
+        ]
+        missing_licenses = [str(path.relative_to(self.root_dir)) for path in required_licenses if not path.exists() or path.stat().st_size == 0]
+        if missing_licenses:
+            QMessageBox.critical(
+                self,
+                "Lizenzprüfung fehlgeschlagen",
+                "Das Release wurde nicht gestartet. Fehlende oder leere Lizenzdateien:\n\n"
+                + "\n".join(missing_licenses),
+            )
+            self.append_log("Release abgebrochen: Lizenzprüfung fehlgeschlagen.")
             return
 
         script = self.root_dir / "publish_release.py"

@@ -134,10 +134,14 @@ def build_setup():
 
 
 def copy_text_files(target_dir: Path):
-    for filename in ["README.md", "CHANGELOG.md", "ROADMAP.md", "THIRD_PARTY_NOTICES.md"]:
+    for filename in ["README.md", "CHANGELOG.md", "ROADMAP.md", "THIRD_PARTY_NOTICES.md", "THIRD_PARTY_LICENSES.md"]:
         source = ROOT / filename
         if source.exists():
             shutil.copy2(source, target_dir / filename)
+
+    licenses_source = ROOT / "licenses"
+    if licenses_source.exists():
+        shutil.copytree(licenses_source, target_dir / "licenses", dirs_exist_ok=True)
 
 
 def copy_docs(target_dir: Path):

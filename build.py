@@ -193,6 +193,7 @@ def write_release_files():
     changelog = RELEASE_DIR / "CHANGELOG.txt"
     sha_file = RELEASE_DIR / "SHA256.txt"
     third_party = RELEASE_DIR / "THIRD_PARTY_NOTICES.md"
+    third_party_licenses = RELEASE_DIR / "THIRD_PARTY_LICENSES.md"
 
     readme.write_text(
         f"""MediaHub v{APP_VERSION}
@@ -220,6 +221,12 @@ Beim ersten Start legt MediaHub benötigte Ordner wie config, tools, downloads, 
     source_third_party = ROOT / "THIRD_PARTY_NOTICES.md"
     if source_third_party.exists():
         shutil.copy2(source_third_party, third_party)
+    source_third_party_licenses = ROOT / "THIRD_PARTY_LICENSES.md"
+    if source_third_party_licenses.exists():
+        shutil.copy2(source_third_party_licenses, third_party_licenses)
+    source_licenses = ROOT / "licenses"
+    if source_licenses.exists():
+        shutil.copytree(source_licenses, RELEASE_DIR / "licenses", dirs_exist_ok=True)
 
     changelog.write_text(
         f"""MediaHub v{APP_VERSION}
@@ -261,6 +268,8 @@ def final_check():
         ("CHANGELOG", RELEASE_DIR / "CHANGELOG.txt"),
         ("SHA256", RELEASE_DIR / "SHA256.txt"),
         ("Drittanbieter-Hinweise", RELEASE_DIR / "THIRD_PARTY_NOTICES.md"),
+        ("Drittanbieter-Lizenzen", RELEASE_DIR / "THIRD_PARTY_LICENSES.md"),
+        ("Lizenzordner", RELEASE_DIR / "licenses"),
 
         ("Kurzanleitung TXT", RELEASE_DIR / "docs" / "quick" / "KURZANLEITUNG.txt"),
         ("Kurzanleitung HTML", RELEASE_DIR / "docs" / "quick" / "MediaHub_Kurzanleitung.html"),

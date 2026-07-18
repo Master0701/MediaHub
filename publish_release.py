@@ -126,6 +126,22 @@ def verify_release_files(version: str) -> None:
     for path in (README, CHANGELOG, PENDING_RELEASE_NOTES, APP_INFO):
         path.read_text(encoding="utf-8")
 
+
+def verify_license_files() -> None:
+    required = [
+        ROOT / "THIRD_PARTY_NOTICES.md",
+        ROOT / "THIRD_PARTY_LICENSES.md",
+        ROOT / "licenses" / "Apache-2.0.txt",
+        ROOT / "licenses" / "BSD-2-Clause.txt",
+        ROOT / "licenses" / "GPL-2.0.txt",
+        ROOT / "licenses" / "LGPL-3.0.txt",
+        ROOT / "licenses" / "MIT.txt",
+        ROOT / "licenses" / "Unlicense.txt",
+    ]
+    missing = [str(path.relative_to(ROOT)) for path in required if not path.exists() or path.stat().st_size == 0]
+    if missing:
+        raise RuntimeError("Lizenzprüfung fehlgeschlagen. Fehlend oder leer: " + ", ".join(missing))
+
 def current_branch() -> str:
     result = subprocess.run(
         ["git", "branch", "--show-current"], cwd=ROOT, check=True,
@@ -167,6 +183,8 @@ def main() -> int:
         raise SystemExit("RELEASE_NOTES_PENDING.md ist leer. Das Release wurde nicht gestartet.")
 
     print(f"=== MediaHub {tag} veröffentlichen ===", flush=True)
+    verify_license_files()
+    print("Lizenzprüfung erfolgreich.", flush=True)
     set_version(version)
     ensure_changelog_entry(version)
     update_readme(version, release_notes)

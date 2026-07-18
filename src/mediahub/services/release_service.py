@@ -44,7 +44,7 @@ class ReleaseService:
         self._create_empty_database(target / "config" / "mediahub.sqlite3")
         details.append("leere SQLite-Datenbank erstellt")
 
-        for name in ("README.md", "CHANGELOG.md", "ROADMAP.md", "TODO.md", "requirements.txt", "THIRD_PARTY_NOTICES.md", ".gitignore", "main.py"):
+        for name in ("README.md", "CHANGELOG.md", "ROADMAP.md", "TODO.md", "requirements.txt", "THIRD_PARTY_NOTICES.md", "THIRD_PARTY_LICENSES.md", ".gitignore", "main.py"):
             src = self.base_dir / name
             if src.exists():
                 shutil.copy2(src, target / name)
@@ -79,6 +79,7 @@ class ReleaseService:
         self._copy_tree_if_exists(self.base_dir / "assets", target / "assets", details, "assets")
         self._copy_tree_if_exists(self.base_dir / "plugins", target / "plugins", details, "plugins")
         self._copy_tree_if_exists(self.base_dir / "tools", target / "tools", details, "tools")
+        self._copy_tree_if_exists(self.base_dir / "licenses", target / "licenses", details, "licenses")
         self.create_build_files(target)
         details.append("Build-Dateien im Release-Verzeichnis erstellt")
 
@@ -221,6 +222,8 @@ a = Analysis(
         (str(project / 'README.md'), '.'),
         (str(project / 'CHANGELOG.md'), '.'),
         (str(project / 'THIRD_PARTY_NOTICES.md'), '.'),
+        (str(project / 'THIRD_PARTY_LICENSES.md'), '.'),
+        (str(project / 'licenses'), 'licenses'),
     ],
     hiddenimports=[],
     hookspath=[],
