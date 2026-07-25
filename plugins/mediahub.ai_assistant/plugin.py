@@ -17,7 +17,7 @@ from services.knowledge_engine import KnowledgeEngine
 try:
     from PySide6.QtCore import QObject, Qt, Signal, Slot
     from PySide6.QtWidgets import (
-        QApplication, QFileDialog, QHBoxLayout, QLabel, QPlainTextEdit, QPushButton,
+        QApplication, QFileDialog, QHBoxLayout, QLabel, QMessageBox, QPlainTextEdit, QPushButton,
         QTabWidget, QVBoxLayout, QWidget
     )
 except ImportError:
@@ -77,7 +77,7 @@ class WebFileDialogBridge(QObject):
 
 
 class MediaHubAIAssistantPlugin:
-    VERSION = "0.4.1"
+    VERSION = "1.0.0"
 
     def __init__(self, plugin_path: str | Path, mediahub_api: Any = None, **kwargs: Any):
         self.plugin_path = Path(plugin_path)
@@ -97,7 +97,7 @@ class MediaHubAIAssistantPlugin:
         self.knowledge = KnowledgeDatabase(self.knowledge_db_path)
         self.mediahub_reader = MediaHubDatabaseReader(self.mediahub_db_path)
         self.tool_resolver = ToolResolver(self.base_dir)
-        self.media_analyzer = MediaAnalyzer(self.base_dir, self.knowledge_db_path)
+        self.media_analyzer = MediaAnalyzer(self.base_dir, self.knowledge_db_path, self.plugin_path)
         self.knowledge_engine = KnowledgeEngine(self.knowledge_db_path)
 
         if acquire_shared_server and WebRuntimeSettingsStore:
@@ -136,6 +136,12 @@ class MediaHubAIAssistantPlugin:
             "mediahub_database_read_only": True,
             "llm_provider": "Noch nicht eingerichtet",
             "fast_rule_engine": True,
+            "sources": self.media_analyzer.source_manager.status(),
+            "in_video": self.media_analyzer.in_video_agent.capabilities(),
+            "quality_engine": {"implemented": True, "reference_profiles": True, "audio_quality": True},
+            "decision_engine": {"schema_version": 2, "explanations": True, "conflict_detection": True},
+            "fingerprints": self.media_analyzer.fingerprint_store.stats(),
+            "integration_api": {"schema_version": 1, "targets": ["mediahub.metadata_editor", "mediahub.universal_renamer"]},
         }
 
     def get_status(self):
@@ -155,6 +161,12 @@ class MediaHubAIAssistantPlugin:
             "knowledge_engine": self.knowledge_engine.stats(),
             "mediahub_database": self.mediahub_reader.status(),
             "tools": self.tool_resolver.status(),
+            "sources": self.media_analyzer.source_manager.status(),
+            "in_video": self.media_analyzer.in_video_agent.capabilities(),
+            "quality_engine": {"implemented": True, "reference_profiles": True, "audio_quality": True},
+            "decision_engine": {"schema_version": 2, "explanations": True, "conflict_detection": True},
+            "fingerprints": self.media_analyzer.fingerprint_store.stats(),
+            "integration_api": {"schema_version": 1, "targets": ["mediahub.metadata_editor", "mediahub.universal_renamer"]},
             "performance": {
                 "sqlite_wal": True,
                 "indexed_core_tables": True,
@@ -183,10 +195,34 @@ class MediaHubAIAssistantPlugin:
             f"Typ: {identification.get('media_type') or '-'}",
             f"Titel: {identification.get('title_candidate') or '-'}",
             f"Staffel: {identification.get('season') or '-'}",
-            f"Folge: {identification.get('episode') or '-'}",
+            f"Folge(n): {', '.join(str(v) for v in (identification.get('episodes') or [])) or identification.get('episode') or '-'}",
             f"Jahr: {identification.get('year') or '-'}",
-            f"Fassung: {identification.get('edition_candidate') or '-'}",
+            f"Fassung(en): {', '.join(identification.get('edition_candidates') or []) or identification.get('edition_candidate') or '-'}",
+            f"Begründung: {', '.join(identification.get('reasons') or []) or '-'}",
             f"Sicherheit Dateiname: {round(float(identification.get('confidence') or 0) * 100)} %",
+            "",
+            "KI-ENTSCHEIDUNG",
+            "---------------",
+            f"Status: {(result.get('decision') or {}).get('status') or '-'}",
+            f"Gesamtsicherheit: {(result.get('decision') or {}).get('confidence_percent') or '-'} %",
+            f"Vertrauen: {(result.get('decision') or {}).get('trust_label') or '-'}",
+            f"Unabhängige Bestätigungen: {(result.get('decision') or {}).get('independent_confirmations', 0)}",
+            f"Empfehlung: {(result.get('decision') or {}).get('recommendation') or '-'}",
+            f"Warum: {((result.get('decision') or {}).get('explanation') or {}).get('conclusion') or '-'}",
+            *[f"- {text}" for text in (((result.get('decision') or {}).get('explanation') or {}).get('why') or [])],
+            *(["Noch nicht eindeutig:"] + [f"- {text}" for text in (((result.get('decision') or {}).get('explanation') or {}).get('limitations') or [])] if (((result.get('decision') or {}).get('explanation') or {}).get('limitations') or []) else []),
+            *(["Widersprüche:"] + [
+                f"- {item.get('left_source')}: {item.get('left_value')} <> {item.get('right_source')}: {item.get('right_value')}"
+                for item in ((result.get('decision') or {}).get('conflicts') or [])
+            ] if ((result.get('decision') or {}).get('conflicts') or []) else []),
+            "",
+            "KI-BEWEISE",
+            "-----------",
+            *[
+                f"{'✔' if item.get('supports') else '○'} {item.get('label')}: {item.get('value')} "
+                f"({item.get('confidence_percent')} %, Gewicht {round(float(item.get('weight') or 0) * 100)} %)"
+                for item in ((result.get('decision') or {}).get('all_evidence') or [])
+            ],
             "",
             "TECHNISCHE DATEN",
             "-----------------",
@@ -199,10 +235,25 @@ class MediaHubAIAssistantPlugin:
             f"Untertitel: {summary.get('subtitle_tracks', 0)}",
             f"Kapitel: {summary.get('chapters', 0)}",
             "",
+            "QUALITÄTSBEWERTUNG",
+            "-------------------",
+            f"Gesamt: {(result.get('quality') or {}).get('overall_score') or '-'} %",
+            f"Bild: {((result.get('quality') or {}).get('video') or {}).get('score') or '-'} %",
+            f"Ton: {((result.get('quality') or {}).get('audio') or {}).get('score') or '-'} %",
+            f"Status: {(result.get('quality') or {}).get('label') or '-'}",
+            "",
+            "IN-VIDEO-ANALYSE",
+            "-----------------",
+            f"Status: {(result.get('in_video') or {}).get('state') or '-'}",
+            f"Ausgeführte Agenten: {(result.get('in_video') or {}).get('completed_agents', 0)}",
+            *[f"{name}: {(data or {}).get('state', '-')}" for name, data in (((result.get('in_video') or {}).get('agents') or {}).items())],
+            "",
             "ANALYSEWEG",
             "-----------",
             f"Cache: {'verwendet' if cache.get('hit') else 'neu analysiert'}",
+            f"Cache-Zeitpunkt: {cache.get('analyzed_at') or '-'}",
             f"Werkzeuge: {', '.join(result.get('methods_used') or [])}",
+            *[f"{item.get('source')}: {item.get('status')} – {item.get('detail')}" for item in (result.get('evidence') or [])],
             "",
             "WARNUNGEN",
             "---------",
@@ -210,11 +261,47 @@ class MediaHubAIAssistantPlugin:
         ]
         return "\n".join(lines)
 
-    def analyze_media_file(self, file_path):
-        return self.media_analyzer.analyze(file_path)
+
+    def register_fingerprint_reference(self, analysis):
+        """Speichert einen vom Benutzer bestätigten Fingerprint als lokale Referenz."""
+        return self.media_analyzer.register_fingerprint_reference(analysis)
+
+    def get_integration_payload(self, analysis):
+        """Stabile Übergabe an Metadata Editor und Universal Renamer."""
+        return self.media_analyzer.export_integration_payload(analysis)
+
+    def analyze_media_file(self, file_path, force=False):
+        return self.media_analyzer.analyze(file_path, force=force)
+
+    def clear_analysis_cache(self, file_path=None):
+        if file_path:
+            return self.media_analyzer.clear_cache_for(file_path)
+        return self.media_analyzer.clear_cache()
 
     def create_widget(self, parent=None):
+        """Erzeugt die normale Plugin-Oberfläche für MediaHub."""
         return AIAssistantWidget(self, parent=parent)
+
+    def create_window(self, parent=None):
+        """Erzeugt ein echtes, eigenständiges Desktop-Fenster.
+
+        Neuere MediaHub-Versionen verwenden diese Methode bevorzugt für
+        Plugins mit ``ui.type = window``. Ältere Versionen fallen weiterhin
+        auf ``create_widget`` zurück.
+        """
+        window = QWidget(parent, Qt.WindowType.Window)
+        window.setAttribute(Qt.WidgetAttribute.WA_DeleteOnClose, True)
+        window.setWindowTitle(f"MediaHub KI-Assistent {self.VERSION}")
+        window.resize(1420, 860)
+        window.setMinimumSize(1000, 650)
+        layout = QVBoxLayout(window)
+        layout.setContentsMargins(10, 10, 10, 10)
+        layout.addWidget(AIAssistantWidget(self, parent=window), 1)
+        return window
+
+    def create_settings_widget(self, parent=None):
+        """Plugin-spezifische Einstellungen für das Plugin Center."""
+        return AIAssistantSettingsWidget(self, parent=parent)
 
     def _register_routes(self):
         self.server.add_route("/ai-assistant", self._index, owner=self)
@@ -606,6 +693,83 @@ class MediaHubAIAssistantPlugin:
             "application/json; charset=utf-8",
             json.dumps(self.get_status(), ensure_ascii=False).encode("utf-8"),
         )
+
+
+class AIAssistantSettingsWidget(QWidget):
+    """Einstellungen des KI-Assistenten im Plugin Center."""
+
+    def __init__(self, plugin, parent=None):
+        super().__init__(parent)
+        self.plugin = plugin
+
+        root = QVBoxLayout(self)
+        root.setContentsMargins(0, 0, 0, 0)
+        root.setSpacing(10)
+
+        title = QLabel("Analyse-Cache")
+        title.setStyleSheet("font-size: 18px; font-weight: 700;")
+        root.addWidget(title)
+
+        hint = QLabel(
+            "Bereits analysierte, unveränderte Dateien werden aus dem Cache geladen. "
+            "Nach dem Löschen wird die nächste Analyse vollständig neu ausgeführt."
+        )
+        hint.setWordWrap(True)
+        root.addWidget(hint)
+
+        self.status = QLabel()
+        self.status.setWordWrap(True)
+        root.addWidget(self.status)
+
+        buttons = QHBoxLayout()
+        refresh = QPushButton("Cache-Status aktualisieren")
+        refresh.clicked.connect(self.refresh_status)
+        buttons.addWidget(refresh)
+
+        clear = QPushButton("Gesamten Analyse-Cache löschen")
+        clear.clicked.connect(self.clear_cache)
+        buttons.addWidget(clear)
+        buttons.addStretch(1)
+        root.addLayout(buttons)
+        root.addStretch(1)
+        self.refresh_status()
+
+    def refresh_status(self):
+        try:
+            db_path = Path(self.plugin.knowledge_db_path)
+            count = 0
+            if db_path.exists():
+                import sqlite3
+                with sqlite3.connect(db_path, timeout=5.0) as db:
+                    row = db.execute(
+                        "SELECT COUNT(*) FROM identification_cache"
+                    ).fetchone()
+                    count = int(row[0] if row else 0)
+            self.status.setText(
+                f"Gespeicherte Analysen: {count}\n"
+                f"Cache-Datenbank: {db_path}"
+            )
+        except Exception as exc:
+            self.status.setText(f"Cache-Status konnte nicht gelesen werden: {exc}")
+
+    def clear_cache(self):
+        answer = QMessageBox.question(
+            self,
+            "Analyse-Cache löschen",
+            "Sollen wirklich alle gespeicherten Dateianalysen gelöscht werden?",
+        )
+        if answer != QMessageBox.StandardButton.Yes:
+            return
+        try:
+            deleted = int(self.plugin.clear_analysis_cache() or 0)
+            QMessageBox.information(
+                self,
+                "Analyse-Cache",
+                f"Der Analyse-Cache wurde gelöscht. Entfernte Einträge: {deleted}",
+            )
+            self.refresh_status()
+        except Exception as exc:
+            QMessageBox.warning(self, "Analyse-Cache", str(exc))
 
 
 class AIAssistantWidget(QWidget):

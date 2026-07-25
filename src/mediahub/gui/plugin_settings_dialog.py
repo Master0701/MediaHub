@@ -17,6 +17,23 @@ class WebPluginSettingsDialog(QDialog):
         self.data = dict(self.plugin.get_plugin_settings() or {})
 
         layout = QVBoxLayout(self)
+
+        custom_factory = getattr(self.plugin, "create_settings_widget", None)
+        if callable(custom_factory):
+            intro = QLabel("Einstellungen des ausgewählten Plugins")
+            intro.setWordWrap(True)
+            layout.addWidget(intro)
+            custom_widget = custom_factory(parent=self)
+            if custom_widget is None:
+                raise RuntimeError("Das Plugin hat kein Einstellungs-Widget zurückgegeben.")
+            layout.addWidget(custom_widget, 1)
+            buttons = QHBoxLayout()
+            close = QPushButton("Schließen")
+            close.clicked.connect(self.accept)
+            buttons.addStretch(1)
+            buttons.addWidget(close)
+            layout.addLayout(buttons)
+            return
         intro = QLabel("Die angezeigten Bereiche gehören ausschließlich zum ausgewählten Plugin. Gemeinsame Netzwerkwerte werden von beiden Web-Plugins verwendet.")
         intro.setWordWrap(True)
         layout.addWidget(intro)

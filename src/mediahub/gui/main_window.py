@@ -47,6 +47,7 @@ from src.mediahub.gui.statistics_panel import StatisticsPanel
 from src.mediahub.gui.recovery_center import RecoveryCenter
 from src.mediahub.gui.help_center import HelpCenter
 from src.mediahub.gui.assistant_panel import AssistantPanel
+from src.mediahub.gui.plugin_store_panel import PluginStorePanel
 from src.mediahub.gui.plugin_center import PluginCenter
 from src.mediahub.gui.plugin_gui_panel import PluginGuiPanel
 from src.mediahub.plugins.plugin_api import MediaHubPluginAPI
@@ -112,6 +113,7 @@ class MainWindow(QMainWindow):
         self.help_center = None
         self.assistant_panel = None
         self.plugin_center = None
+        self.plugin_store_panel = None
         self._plugin_gui_header_item = None
         self._plugin_gui_pages = {}
 
@@ -569,6 +571,11 @@ class MainWindow(QMainWindow):
             tool_service=self.tool_service,
         )
         self.plugin_center.plugins_changed.connect(self.refresh_plugin_gui_navigation)
+        self.plugin_store_panel = PluginStorePanel(
+            base_dir=self.base_dir,
+            plugin_loader=self.plugin_center.loader,
+            parent=self,
+        )
 
         self.channel_panel.channel_selected_callback = self.settings_panel.load_channel
         self.settings_panel.change_callback = self.on_settings_changed
@@ -599,6 +606,7 @@ class MainWindow(QMainWindow):
             self.help_center,
             self.assistant_panel,
             self.plugin_center,
+            self.plugin_store_panel,
         ):
             widget.setMinimumSize(0, 0)
             widget.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Expanding)
@@ -621,6 +629,7 @@ class MainWindow(QMainWindow):
         self._add_page("🛟 Recovery", self.recovery_center)
         self._add_page("🤖 Assistent", self.assistant_panel)
         self._add_page("🔌 Plugins", self.plugin_center)
+        self._add_page("🛒 Plugin-Store", self.plugin_store_panel)
         self._add_page("🩺 Health Check", self.health_check_panel)
         self._add_page("🛠 Werkzeuge", self._build_tools_page())
         self._add_page("⚙ Einstellungen", self._build_settings_page())
@@ -731,6 +740,8 @@ class MainWindow(QMainWindow):
             self.recovery_manager.refresh()
         elif "Assistent" in title and self.assistant_manager is not None:
             self.assistant_manager.refresh()
+        elif "Plugin-Store" in title and self.plugin_store_panel is not None:
+            self.plugin_store_panel.refresh()
         elif "Plugins" in title and self.plugin_center is not None:
             self.plugin_center.refresh()
 
@@ -783,6 +794,7 @@ class MainWindow(QMainWindow):
             ("Health-Check-Seite öffnen", lambda: self._select_nav_page("Health Check")),
             ("Log-Ordner öffnen", self.open_log_folder),
             ("Plugin Center öffnen", self.open_plugin_center),
+            ("Plugin-Store öffnen", self.open_plugin_store),
         ]
         for text, callback in buttons:
             button = QPushButton(text)
@@ -938,7 +950,8 @@ class MainWindow(QMainWindow):
             "Statistik": "Statistiken zu Kanälen, Videos, Downloads und Datenbank anzeigen.",
             "Recovery": "Backups, Wiederherstellung und Wartungsfunktionen.",
             "Assistent": "Health Score, Empfehlungen und schnelle Problemlösungen.",
-            "Plugins": "Vorbereitete Erweiterungen und Plugin-Manifestdateien anzeigen.",
+            "Plugin-Store": "MediaHub-Plugins und AI-Plugins suchen und installieren.",
+            "Plugins": "Installierte Erweiterungen und Plugin-Manifestdateien verwalten.",
             "Health Check": "Werkzeuge, Ordner, Datenbank und Grundsystem prüfen.",
             "Werkzeuge": "Tool-Center, externe Programme und Log-Ordner.",
             "Einstellungen": "Globale Pfade, Backup-Vorgaben, Plex und Tool-Status.",
@@ -1470,6 +1483,11 @@ class MainWindow(QMainWindow):
         if self.plugin_center is not None:
             self.plugin_center.refresh()
         self._select_nav_page("Plugins")
+
+    def open_plugin_store(self):
+        if self.plugin_store_panel is not None:
+            self.plugin_store_panel.refresh()
+        self._select_nav_page("Plugin-Store")
 
     def open_help_center(self):
         self._select_nav_page("Hilfe")

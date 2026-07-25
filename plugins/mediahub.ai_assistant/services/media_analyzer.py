@@ -8,6 +8,13 @@ from typing import Any
 from services.tool_resolver import ToolResolver
 from services.filename_identifier import FilenameIdentifier
 from services.analysis_cache import AnalysisCache
+from services.decision_planner import DecisionPlanner
+from services.source_manager import SourceManager
+from services.agents import SupervisorAgent, InVideoAgent, OnlineAgent
+from services.quality_engine import QualityEngine, QualityProfileStore
+from services.decision_engine import DecisionEngine
+from services.fingerprint_store import FingerprintReferenceStore
+from services.integration_api import AssistantIntegrationAPI
 
 
 VIDEO_EXTENSIONS = {
@@ -23,9 +30,18 @@ class MediaAnalyzer:
         self,
         mediahub_base: Path,
         knowledge_database_path: Path | None = None,
+        plugin_path: Path | None = None,
     ):
         self.tools = ToolResolver(mediahub_base)
         self.filename_identifier = FilenameIdentifier()
+        self.decision_planner = DecisionPlanner()
+        self.source_manager = SourceManager(plugin_path) if plugin_path is not None else None
+        self.supervisor = SupervisorAgent()
+        self.in_video_agent = InVideoAgent(self.tools)
+        self.quality_engine = QualityEngine(QualityProfileStore(knowledge_database_path))
+        self.fingerprint_store = FingerprintReferenceStore(knowledge_database_path)
+        self.decision_engine = DecisionEngine(self.fingerprint_store)
+        self.online_agent = OnlineAgent(self.source_manager) if self.source_manager is not None else None
         self.cache = (
             AnalysisCache(knowledge_database_path)
             if knowledge_database_path is not None
@@ -33,14 +49,14 @@ class MediaAnalyzer:
         )
 
 
-    def analyze(self, file_path: str | Path) -> dict[str, Any]:
+    def analyze(self, file_path: str | Path, force: bool = False) -> dict[str, Any]:
         path = Path(file_path)
         if not path.is_file():
             raise FileNotFoundError(path)
         if path.suffix.lower() not in VIDEO_EXTENSIONS:
             raise ValueError(f"Nicht unterstützte Videodatei: {path.suffix}")
 
-        if self.cache is not None:
+        if self.cache is not None and not force:
             cached = self.cache.get(path)
             if cached is not None:
                 return cached
@@ -57,7 +73,7 @@ class MediaAnalyzer:
             "summary": {},
             "warnings": [],
             "methods_used": ["filename"],
-            "cache": {"hit": False, "message": "Neue Analyse durchgeführt."},
+            "cache": {"hit": False, "message": "Neue Analyse durchgeführt.", "forced": force},
             "identification": self.filename_identifier.identify(path),
         }
 
@@ -95,9 +111,75 @@ class MediaAnalyzer:
 
         result["summary"] = self._build_summary(result)
         result["evidence"] = self._build_evidence(result)
+        result["source_plan"] = self.source_manager.plan(result) if self.source_manager is not None else None
+        initial_supervisor = self.supervisor.evaluate(result)
+        should_run_online = any(
+            step.get("agent") == "online" and step.get("required")
+            for step in (initial_supervisor.get("next_steps") or [])
+        )
+        has_online_sources = bool((result.get("source_plan") or {}).get("candidate_sources"))
+        if self.online_agent is not None and should_run_online and has_online_sources:
+            result["online"] = self.online_agent.run(result)
+            result["source_plan"]["executed"] = True
+            result["source_plan"]["reason"] = "Konfigurierte Online-Quellen wurden automatisch ausgeführt."
+        else:
+            result["online"] = {
+                "schema_version": 2,
+                "executed": False,
+                "reason": (
+                    "Keine geeignete konfigurierte Quelle verfügbar."
+                    if should_run_online
+                    else "Lokale Sicherheit reicht aus; Online-Abgleich wurde eingespart."
+                ),
+                "provider_results": [],
+                "ranking": {
+                    "schema_version": 2, "matches": [], "best_match": None, "match_count": 0,
+                    "confidence": 0.0, "confidence_gap": None, "decision": "not_executed",
+                    "weights": dict(self.online_agent.ranker.WEIGHTS) if self.online_agent is not None else {},
+                },
+            }
+        result["supervisor"] = self.supervisor.evaluate(result)
+        in_video_required = any(step.get("agent") == "in_video" and step.get("required") for step in (result["supervisor"].get("next_steps") or []))
+        result["in_video"] = self.in_video_agent.run(result, in_video_required)
+        self._append_in_video_evidence(result)
+        result["quality"] = self.quality_engine.evaluate(result)
+        result["decision"] = self.decision_engine.evaluate(result)
+        result["supervisor"] = self.supervisor.evaluate(result)
+        result["change_plan"] = self.decision_planner.build(result)
+        result["integration"] = AssistantIntegrationAPI.build(result)
         if self.cache is not None:
             self.cache.put(path, result)
         return result
+
+
+    @staticmethod
+    def _append_in_video_evidence(result: dict[str, Any]) -> None:
+        agents = ((result.get("in_video") or {}).get("agents") or {})
+        labels = {"frame_agent":"Frames", "subtitle_agent":"Untertitel", "audio_agent":"Audio", "ocr_agent":"OCR", "fingerprint_agent":"Fingerprint", "scene_agent":"Szenen"}
+        for key, label in labels.items():
+            data = agents.get(key) or {}
+            state = data.get("state")
+            if state == "completed":
+                result.setdefault("evidence", []).append({"source": label, "status": "Bestätigt", "detail": "Inhaltsanalyse erfolgreich ausgeführt"})
+                method = key.removesuffix("_agent")
+                if method not in result.setdefault("methods_used", []): result["methods_used"].append(method)
+            elif state in {"unavailable", "failed", "unsupported"}:
+                result.setdefault("warnings", []).append(f"{label}: {data.get('reason') or state}")
+
+    def register_fingerprint_reference(self, analysis: dict[str, Any]) -> dict[str, Any]:
+        agents = ((analysis.get("in_video") or {}).get("agents") or {})
+        fingerprint = (agents.get("fingerprint_agent") or {}).get("video_fingerprint")
+        identity = analysis.get("decision") or analysis.get("identification") or {}
+        return self.fingerprint_store.register(fingerprint, identity, (analysis.get("file") or {}).get("path"))
+
+    def export_integration_payload(self, analysis: dict[str, Any]) -> dict[str, Any]:
+        return AssistantIntegrationAPI.build(analysis)
+
+    def clear_cache_for(self, file_path: str | Path) -> int:
+        return self.cache.delete(Path(file_path)) if self.cache is not None else 0
+
+    def clear_cache(self) -> int:
+        return self.cache.clear() if self.cache is not None else 0
 
     @staticmethod
     def _run_json(command: list[str]) -> dict[str, Any]:

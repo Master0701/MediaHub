@@ -22,6 +22,59 @@ class PluginLoader:
                 plugins.append(plugin)
         return plugins
 
+
+    @staticmethod
+    def _parse_tool_declarations(required_values, optional_values) -> tuple[list[str], list[str]]:
+        """Normalisiert alte Stringlisten und neue Tool-Objekte.
+
+        Unterstützte Beispiele::
+
+            "required_tools": ["mediainfo"]
+
+            "required_tools": [
+                {"id": "mediainfo", "required": False}
+            ]
+
+        Ein Objekt mit ``required: false`` wird als optional verwendet
+        eingeordnet. Doppelte Einträge werden entfernt; Pflicht hat Vorrang.
+        Zusätzliche Objektfelder bleiben für zukünftige Manifest-Erweiterungen
+        erlaubt und werden vom aktuellen Loader bewusst ignoriert.
+        """
+
+        required: list[str] = []
+        optional: list[str] = []
+
+        def add_unique(target: list[str], tool_id: str) -> None:
+            normalized = str(tool_id or "").strip().lower()
+            if normalized and normalized not in target:
+                target.append(normalized)
+
+        def consume(values, default_required: bool) -> None:
+            if not isinstance(values, list):
+                return
+
+            for value in values:
+                is_required = default_required
+                if isinstance(value, dict):
+                    raw_id = value.get("id") or value.get("tool_id") or value.get("name")
+                    if "required" in value:
+                        is_required = bool(value.get("required"))
+                else:
+                    raw_id = value
+
+                tool_id = str(raw_id or "").strip().lower()
+                if not tool_id:
+                    continue
+
+                add_unique(required if is_required else optional, tool_id)
+
+        consume(required_values, True)
+        consume(optional_values, False)
+
+        # Ein Pflichttool darf nicht zusätzlich als optional erscheinen.
+        optional = [tool_id for tool_id in optional if tool_id not in required]
+        return required, optional
+
     def load_manifest(self, manifest: Path) -> PluginInfo | None:
         try:
             data = json.loads(manifest.read_text(encoding="utf-8"))
@@ -36,13 +89,10 @@ class PluginLoader:
         if not isinstance(permissions, list):
             permissions = []
 
-        required_tools = data.get("required_tools") or []
-        if not isinstance(required_tools, list):
-            required_tools = []
-
-        optional_tools = data.get("optional_tools") or []
-        if not isinstance(optional_tools, list):
-            optional_tools = []
+        required_tools, optional_tools = self._parse_tool_declarations(
+            data.get("required_tools") or [],
+            data.get("optional_tools") or [],
+        )
 
         ui = data.get("ui") or {}
         if not isinstance(ui, dict):
@@ -76,8 +126,8 @@ class PluginLoader:
             class_name=str(data.get("class_name") or ""),
             minimum_mediahub_version=str(data.get("minimum_mediahub_version") or ""),
             permissions=[str(item) for item in permissions],
-            required_tools=[str(item).strip() for item in required_tools if str(item).strip()],
-            optional_tools=[str(item).strip() for item in optional_tools if str(item).strip()],
+            required_tools=required_tools,
+            optional_tools=optional_tools,
             has_gui=has_gui,
             ui_type=ui_type,
             ui_title=str(ui.get("title") or data.get("gui_name") or data.get("name") or plugin_id),

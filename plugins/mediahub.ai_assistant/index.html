@@ -79,8 +79,9 @@ function renderAnalysis(j){
  `<h3>Erkennungsvorschlag</h3>
   <p><b>Typ:</b> ${esc(i.media_type)}</p>
   <p><b>Titel:</b> ${esc(i.title_candidate)}</p>
-  <p><b>Staffel/Folge:</b> ${esc(i.season)} / ${esc(i.episode)}</p>
-  <p><b>Fassung:</b> ${esc(i.edition_candidate)}</p>
+  <p><b>Staffel/Folge(n):</b> ${esc(i.season)} / ${esc((i.episodes||[]).join(', ')||i.episode)}</p>
+  <p><b>Fassung(en):</b> ${esc((i.edition_candidates||[]).join(', ')||i.edition_candidate)}</p>
+  <p><b>Begründung:</b> ${esc((i.reasons||[]).join(', '))}</p>
   <p><b>Sicherheit Dateiname:</b> ${Math.round(Number(i.confidence||0)*100)} %</p>
   <hr>
   <p><b>Laufzeit:</b> ${duration}</p>

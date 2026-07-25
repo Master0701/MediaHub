@@ -135,28 +135,35 @@ class PluginGuiPanel(QWidget):
             return False
 
         instance = self.plugin_center.get_running_instance(self.plugin_id)
-        factory = getattr(instance, "create_widget", None) if instance is not None else None
-        if not callable(factory):
+        window_factory = getattr(instance, "create_window", None) if instance is not None else None
+        widget_factory = getattr(instance, "create_widget", None) if instance is not None else None
+        if not callable(window_factory) and not callable(widget_factory):
             QMessageBox.warning(
                 self,
                 "Plugin-Oberfläche",
-                "Dieses Plugin ist als Desktop-Fenster eingetragen, stellt aber keine create_widget()-Methode bereit.",
+                "Dieses Plugin stellt weder create_window() noch create_widget() bereit.",
             )
             return False
 
         try:
-            window = QWidget(None, Qt.WindowType.Window)
-            window.setAttribute(Qt.WidgetAttribute.WA_DeleteOnClose, True)
-            window.setWindowTitle(plugin.ui_title or plugin.name)
-            window.resize(1420, 860)
-            window.setMinimumSize(1000, 650)
-            layout = QVBoxLayout(window)
-            layout.setContentsMargins(10, 10, 10, 10)
-            layout.setSpacing(0)
-            widget = factory(parent=window)
-            if widget is None:
-                raise RuntimeError("Das Plugin hat kein Widget zurückgegeben.")
-            layout.addWidget(widget, 1)
+            if callable(window_factory):
+                window = window_factory(parent=None)
+                if window is None:
+                    raise RuntimeError("Das Plugin hat kein Fenster zurückgegeben.")
+                widget = None
+            else:
+                window = QWidget(None, Qt.WindowType.Window)
+                window.setAttribute(Qt.WidgetAttribute.WA_DeleteOnClose, True)
+                window.setWindowTitle(plugin.ui_title or plugin.name)
+                window.resize(1420, 860)
+                window.setMinimumSize(1000, 650)
+                layout = QVBoxLayout(window)
+                layout.setContentsMargins(10, 10, 10, 10)
+                layout.setSpacing(0)
+                widget = widget_factory(parent=window)
+                if widget is None:
+                    raise RuntimeError("Das Plugin hat kein Widget zurückgegeben.")
+                layout.addWidget(widget, 1)
             self._plugin_window = window
             self._window_widget = widget
 

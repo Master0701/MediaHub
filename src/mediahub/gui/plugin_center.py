@@ -275,7 +275,12 @@ class PluginCenter(QWidget):
         instance = self.runtime.get_instance(plugin.plugin_id)
         if instance is None:
             return False, "Bitte das Plugin zuerst starten."
-        if not hasattr(instance, "get_plugin_settings") or not hasattr(instance, "update_plugin_settings"):
+        has_custom_settings = callable(getattr(instance, "create_settings_widget", None))
+        has_standard_settings = (
+            callable(getattr(instance, "get_plugin_settings", None))
+            and callable(getattr(instance, "update_plugin_settings", None))
+        )
+        if not (has_custom_settings or has_standard_settings):
             return False, "Dieses Plugin besitzt keine eigenen Einstellungen."
         WebPluginSettingsDialog(instance, self).exec()
         return True, "Plugin-Einstellungen geöffnet."
@@ -346,7 +351,12 @@ class PluginCenter(QWidget):
         if instance is None:
             QMessageBox.information(self, "Plugin", "Bitte das Plugin zuerst starten.")
             return
-        if not hasattr(instance, "get_plugin_settings") or not hasattr(instance, "update_plugin_settings"):
+        has_custom_settings = callable(getattr(instance, "create_settings_widget", None))
+        has_standard_settings = (
+            callable(getattr(instance, "get_plugin_settings", None))
+            and callable(getattr(instance, "update_plugin_settings", None))
+        )
+        if not (has_custom_settings or has_standard_settings):
             QMessageBox.information(self, "Plugin", "Dieses Plugin besitzt keine eigenen Einstellungen.")
             return
         dialog = WebPluginSettingsDialog(instance, self)
