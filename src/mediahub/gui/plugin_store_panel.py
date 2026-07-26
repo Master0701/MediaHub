@@ -8,7 +8,10 @@ from PySide6.QtWidgets import (
     QCheckBox,
     QComboBox,
     QFileDialog,
+    QProgressDialog,
+    QApplication,
     QHBoxLayout,
+    QInputDialog,
     QLabel,
     QLineEdit,
     QListWidget,
@@ -28,6 +31,10 @@ from src.mediahub.gui.ui_standards import (
     make_title,
 )
 from src.mediahub.services.ai_node_service import AINodeService
+from src.mediahub.services.ai_node_provisioning_service import (
+    AINodeProvisioningError,
+    AINodeProvisioningService,
+)
 from src.mediahub.services.ai_plugin_catalog_service import AIPluginCatalogService
 from src.mediahub.services.plugin_catalog_service import (
     CatalogPlugin,
@@ -710,6 +717,9 @@ class PluginStorePanel(QWidget):
         if not package_path:
             return
 
+        if not self._ensure_ai_node_ready_for_install():
+            return
+
         service = self._ai_service()
 
         try:
@@ -886,6 +896,196 @@ class PluginStorePanel(QWidget):
                         f"({action.get('reason', 'keine Begründung')})"
                     )
         return "\n".join(lines)
+
+    def _ensure_ai_node_ready_for_install(self) -> bool:
+        """Prüft den AI-Node und installiert oder repariert ihn bei Bedarf."""
+
+        settings = self.settings_service.load()
+        if not isinstance(settings, dict):
+            settings = {}
+
+        ai = settings.get("ai")
+        if not isinstance(ai, dict):
+            ai = {}
+
+        try:
+            service = AINodeService.from_settings(
+                settings,
+                timeout=4.0,
+            )
+            health = service.health()
+            if health.online:
+                service.list_plugins()
+                return True
+        except Exception:
+            pass
+
+        host = str(ai.get("node_host") or "").strip()
+        if not host:
+            host, accepted = QInputDialog.getText(
+                self,
+                "AI-Node einrichten",
+                "IP-Adresse oder Hostname des Raspberry Pi:",
+            )
+            host = str(host).strip()
+            if not accepted or not host:
+                return False
+
+        username = str(
+            ai.get("ssh_username") or "mediahub"
+        ).strip() or "mediahub"
+
+        username, accepted = QInputDialog.getText(
+            self,
+            "AI-Node einrichten",
+            "SSH-Benutzer:",
+            QLineEdit.EchoMode.Normal,
+            username,
+        )
+        username = str(username).strip()
+        if not accepted or not username:
+            return False
+
+        password, accepted = QInputDialog.getText(
+            self,
+            "AI-Node einrichten",
+            "SSH-Passwort (wird nicht gespeichert):",
+            QLineEdit.EchoMode.Password,
+        )
+        if not accepted or not password:
+            return False
+
+        ssh_port = int(ai.get("ssh_port") or 22)
+        api_port = int(ai.get("api_port") or 8765)
+        install_path = str(
+            ai.get("install_path")
+            or "/opt/mediahub/ai-node"
+        ).strip()
+
+        answer = QMessageBox.question(
+            self,
+            "AI-Node automatisch einrichten",
+            "Der AI-Node ist über die REST-API nicht erreichbar.\n\n"
+            "MediaHub prüft den Raspberry Pi jetzt über SSH und wird "
+            "den AI-Node bei Bedarf installieren oder reparieren.\n\n"
+            "Fortfahren?",
+        )
+        if answer != QMessageBox.StandardButton.Yes:
+            return False
+
+        progress = QProgressDialog(
+            "Der MediaHub-AI-Node wird auf dem Raspberry Pi eingerichtet.\n\n"
+            "Die erste Installation kann je nach Internetverbindung und "
+            "Geschwindigkeit des Raspberry Pi mehrere Minuten dauern.\n\n"
+            "Bitte MediaHub währenddessen nicht schließen.",
+            "",
+            0,
+            0,
+            self,
+        )
+        progress.setWindowTitle("MediaHub-AI-Node wird eingerichtet")
+        progress.setCancelButton(None)
+        progress.setMinimumDuration(0)
+        progress.setAutoClose(False)
+        progress.setAutoReset(False)
+        progress.setWindowModality(Qt.WindowModality.ApplicationModal)
+        progress.show()
+        QApplication.processEvents()
+
+        try:
+            progress.setLabelText(
+                "SSH-Verbindung hergestellt.\n"
+                "AI-Node wird geprüft, installiert oder repariert ...\n\n"
+                "Dieser Vorgang kann mehrere Minuten dauern."
+            )
+            QApplication.processEvents()
+
+            provisioner = AINodeProvisioningService(
+                host=host,
+                ssh_port=ssh_port,
+                username=username,
+                password=password,
+                project_dir=install_path,
+                timeout=15.0,
+            )
+            result = provisioner.ensure_ready()
+
+            progress.setLabelText(
+                "AI-Node wurde eingerichtet.\n"
+                "API-Token und Verbindung werden geprüft ..."
+            )
+            QApplication.processEvents()
+        except AINodeProvisioningError as error:
+            progress.close()
+            QMessageBox.warning(
+                self,
+                "AI-Node einrichten",
+                str(error),
+            )
+            return False
+        except Exception as error:
+            progress.close()
+            QMessageBox.warning(
+                self,
+                "AI-Node einrichten",
+                "Die automatische Einrichtung ist fehlgeschlagen:\n"
+                f"{error}",
+            )
+            return False
+
+        token = str(result.api_token or "").strip()
+        if not token:
+            progress.close()
+            QMessageBox.warning(
+                self,
+                "AI-Node einrichten",
+                "Der AI-Node wurde eingerichtet, aber MediaHub hat "
+                "kein API-Token erhalten.",
+            )
+            return False
+
+        ai.update(
+            {
+                "node_enabled": True,
+                "node_host": host,
+                "api_port": api_port,
+                "api_token": token,
+                "ssh_port": ssh_port,
+                "ssh_username": username,
+                "install_path": install_path,
+            }
+        )
+        settings["ai"] = ai
+        self.settings_service.save(settings)
+
+        try:
+            service = AINodeService.from_settings(
+                settings,
+                timeout=12.0,
+            )
+            health = service.health()
+            if not health.online:
+                raise RuntimeError(health.message)
+            service.list_plugins()
+        except Exception as error:
+            progress.close()
+            QMessageBox.warning(
+                self,
+                "AI-Node einrichten",
+                "Der AI-Node wurde installiert, aber die abschließende "
+                f"Verbindungsprüfung ist fehlgeschlagen:\n{error}",
+            )
+            return False
+
+        progress.close()
+
+        QMessageBox.information(
+            self,
+            "AI-Node einrichten",
+            "Der AI-Node ist installiert, verbunden und für die "
+            "Plugin-Installation bereit.",
+        )
+        return True
 
     def _ai_service(self) -> AINodeService:
         return AINodeService.from_settings(

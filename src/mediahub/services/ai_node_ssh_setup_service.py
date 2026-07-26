@@ -46,7 +46,7 @@ class AINodeSSHSetupService:
         self.timeout = float(timeout)
 
     def configure(self) -> AINodeSSHSetupResult:
-        """Erzeugt und installiert einmalig ein neues API-Token."""
+        """Speichert das API-Token ausschließlich in der .env."""
 
         if not self.host:
             raise AINodeSSHSetupError(
@@ -58,25 +58,24 @@ class AINodeSSHSetupService:
             )
         if not self.password:
             raise AINodeSSHSetupError(
-                "Für die Ersteinrichtung wird das SSH-Passwort benötigt."
+                "Für die Einrichtung wird das SSH-Passwort benötigt."
             )
 
         try:
             import paramiko
         except ImportError as exc:
             raise AINodeSSHSetupError(
-                "Paramiko fehlt. Bitte einmal "
-                "'python -m pip install paramiko' ausführen."
+                "Paramiko fehlt. Bitte die MediaHub-Abhängigkeiten "
+                "vollständig installieren."
             ) from exc
 
         token = secrets.token_urlsafe(48)
-        override = (
-            "[Service]\n"
-            'Environment="PATH=/opt/mediahub/venv/bin:'
-            '/usr/local/sbin:/usr/local/bin:/usr/sbin:'
-            '/usr/bin:/sbin:/bin"\n'
-            f'Environment="{self.TOKEN_ENV_NAME}={token}"\n'
+        env_file = "/opt/mediahub/ai-node/.env"
+        override_dir = (
+            "/etc/systemd/system/"
+            "mediahub-ai-node.service.d"
         )
+        override_file = f"{override_dir}/override.conf"
 
         client = paramiko.SSHClient()
         client.set_missing_host_key_policy(
@@ -96,36 +95,23 @@ class AINodeSSHSetupService:
                 allow_agent=False,
             )
 
-            temp_path = "/tmp/mediahub-ai-node-override.conf"
-
-            with client.open_sftp() as sftp:
-                with sftp.file(temp_path, "w") as handle:
-                    handle.write(override)
-                sftp.chmod(temp_path, 0o600)
-
-            self._sudo(
-                client,
-                "mkdir -p "
-                "/etc/systemd/system/"
-                "mediahub-ai-node.service.d",
+            command = (
+                f"test -f {env_file} || touch {env_file}; "
+                f"if grep -q '^{self.TOKEN_ENV_NAME}=' {env_file}; then "
+                f"sed -i "
+                f"'s|^{self.TOKEN_ENV_NAME}=.*|"
+                f"{self.TOKEN_ENV_NAME}={token}|' "
+                f"{env_file}; "
+                f"else printf '\\n{self.TOKEN_ENV_NAME}={token}\\n' "
+                f">> {env_file}; fi; "
+                f"chmod 600 {env_file}; "
+                f"chown {self.username}:{self.username} {env_file}; "
+                f"rm -f {override_file}; "
+                f"rmdir {override_dir} 2>/dev/null || true; "
+                "systemctl daemon-reload; "
+                f"systemctl restart {self.SERVICE_NAME}"
             )
-            self._sudo(
-                client,
-                f"install -m 600 {temp_path} "
-                f"{self.OVERRIDE_PATH}",
-            )
-            self._sudo(
-                client,
-                f"rm -f {temp_path}",
-            )
-            self._sudo(
-                client,
-                "systemctl daemon-reload",
-            )
-            self._sudo(
-                client,
-                f"systemctl restart {self.SERVICE_NAME}",
-            )
+            self._sudo(client, command)
 
             for _attempt in range(20):
                 time.sleep(0.5)
@@ -136,7 +122,7 @@ class AINodeSSHSetupService:
                     'if [ -n "$PID" ] && '
                     '[ -r "/proc/$PID/environ" ]; then '
                     "tr '\\0' '\\n' < /proc/$PID/environ | "
-                    f"grep -q '^{self.TOKEN_ENV_NAME}=' "
+                    f"grep -q '^{self.TOKEN_ENV_NAME}={token}$' "
                     "&& echo yes || echo no; "
                     "else echo no; fi",
                 )
@@ -147,8 +133,8 @@ class AINodeSSHSetupService:
                     )
 
             raise AINodeSSHSetupError(
-                "Das Token wurde geschrieben, ist aber nicht im "
-                "laufenden AI-Node-Prozess angekommen."
+                "Das Token wurde in .env geschrieben, ist aber nicht "
+                "im laufenden AI-Node-Prozess angekommen."
             )
         except AINodeSSHSetupError:
             raise

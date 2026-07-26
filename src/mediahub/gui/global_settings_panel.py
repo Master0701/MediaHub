@@ -21,6 +21,11 @@ from PySide6.QtWidgets import (
 )
 
 from src.mediahub.services.ai_node_service import AINodeService
+from src.mediahub.services.ai_node_provisioning_service import (
+    AINodeInstallationState,
+    AINodeProvisioningError,
+    AINodeProvisioningService,
+)
 from src.mediahub.services.ai_node_ssh_setup_service import (
     AINodeSSHSetupError,
     AINodeSSHSetupService,
@@ -285,10 +290,20 @@ class GlobalSettingsPanel(QWidget):
 
     def test_ai_node_connection(self):
         self.btn_test_ai_node.setEnabled(False)
-        self.ai_connection_status.setText("Verbindung wird geprüft ...")
+        self.ai_connection_status.setText(
+            "Verbindung wird geprüft ..."
+        )
 
         host = self.ai_node_host.text().strip()
         ssh_password = self.ai_ssh_password.text()
+        username = (
+            self.ai_ssh_username.text().strip()
+            or "mediahub"
+        )
+        install_path = (
+            self.ai_install_path.text().strip()
+            or "/opt/mediahub/ai-node"
+        )
 
         try:
             if not self.ai_node_enabled.isChecked():
@@ -308,34 +323,56 @@ class GlobalSettingsPanel(QWidget):
             if not token:
                 if not ssh_password:
                     self.ai_connection_status.setText(
-                        "Kein API-Token vorhanden. Bitte einmalig das "
-                        "SSH-Passwort eintragen und erneut prüfen."
+                        "Kein API-Token in MediaHub gespeichert. "
+                        "Bitte einmalig das SSH-Passwort eingeben."
                     )
                     return
 
                 self.ai_connection_status.setText(
-                    "API-Token wird einmalig über SSH eingerichtet ..."
+                    "AI-Node-Installation und Token werden geprüft ..."
                 )
 
-                setup = AINodeSSHSetupService(
+                provisioner = AINodeProvisioningService(
                     host=host,
-                    port=self.ai_ssh_port.value(),
-                    username=(
-                        self.ai_ssh_username.text().strip()
-                        or "mediahub"
-                    ),
+                    ssh_port=self.ai_ssh_port.value(),
+                    username=username,
                     password=ssh_password,
+                    project_dir=install_path,
+                    timeout=15.0,
                 )
-                result = setup.configure()
+                status = provisioner.inspect()
+
+                if (
+                    status.state
+                    is AINodeInstallationState.SOFTWARE_MISSING
+                ):
+                    self.ai_connection_status.setText(
+                        "MediaHub-AI-Node wird automatisch installiert ..."
+                    )
+                elif (
+                    status.state
+                    is AINodeInstallationState.SERVICE_STOPPED
+                ):
+                    self.ai_connection_status.setText(
+                        "Der AI-Node-Dienst wird automatisch repariert ..."
+                    )
+                else:
+                    self.ai_connection_status.setText(
+                        "API-Token und AI-Node werden geprüft ..."
+                    )
+
+                result = provisioner.ensure_ready()
                 token = result.api_token
                 self.ai_node_api_token.setText(token)
 
                 data = self.settings_service.load()
                 if not isinstance(data, dict):
                     data = {}
+
                 ai = data.get("ai")
                 if not isinstance(ai, dict):
                     ai = {}
+
                 ai.update(
                     {
                         "node_enabled": True,
@@ -343,14 +380,8 @@ class GlobalSettingsPanel(QWidget):
                         "api_port": self.ai_node_api_port.value(),
                         "api_token": token,
                         "ssh_port": self.ai_ssh_port.value(),
-                        "ssh_username": (
-                            self.ai_ssh_username.text().strip()
-                            or "mediahub"
-                        ),
-                        "install_path": (
-                            self.ai_install_path.text().strip()
-                            or "/opt/mediahub/ai-node"
-                        ),
+                        "ssh_username": username,
+                        "install_path": install_path,
                         "mode": self.ai_mode.currentText(),
                     }
                 )
@@ -364,14 +395,8 @@ class GlobalSettingsPanel(QWidget):
                     "api_port": self.ai_node_api_port.value(),
                     "api_token": token,
                     "ssh_port": self.ai_ssh_port.value(),
-                    "ssh_username": (
-                        self.ai_ssh_username.text().strip()
-                        or "mediahub"
-                    ),
-                    "install_path": (
-                        self.ai_install_path.text().strip()
-                        or "/opt/mediahub/ai-node"
-                    ),
+                    "ssh_username": username,
+                    "install_path": install_path,
                 }
             }
 
@@ -383,7 +408,8 @@ class GlobalSettingsPanel(QWidget):
 
             if not health.online:
                 self.ai_connection_status.setText(
-                    f"Keine Verbindung zum AI-Node: {health.message}"
+                    f"Keine Verbindung zum AI-Node: "
+                    f"{health.message}"
                 )
                 return
 
@@ -404,11 +430,11 @@ class GlobalSettingsPanel(QWidget):
                 f"Version {health.version}; "
                 f"{detected} Plugin(s) erkannt, "
                 f"{loaded} geladen; "
-                "API-Token verfügbar."
+                "API-Token und geschützter Zugriff verfügbar."
             )
-        except AINodeSSHSetupError as error:
+        except AINodeProvisioningError as error:
             self.ai_connection_status.setText(
-                f"Automatische Einrichtung fehlgeschlagen: {error}"
+                f"AI-Node-Einrichtung fehlgeschlagen: {error}"
             )
         except Exception as error:
             self.ai_connection_status.setText(
