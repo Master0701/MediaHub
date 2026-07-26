@@ -705,7 +705,7 @@ class PluginStorePanel(QWidget):
             self,
             "AI-Plugin-Paket auswählen",
             str(Path.home()),
-            "AI-Plugin-Pakete (*.zip)",
+            "AI-Plugin-Pakete (*.mhaiplugin *.zip)",
         )
         if not package_path:
             return

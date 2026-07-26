@@ -1,3 +1,4 @@
 PySide6
 requests
 yt-dlp
+paramiko>=3.4,<5

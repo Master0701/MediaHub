@@ -21,6 +21,10 @@ from PySide6.QtWidgets import (
 )
 
 from src.mediahub.services.ai_node_service import AINodeService
+from src.mediahub.services.ai_node_ssh_setup_service import (
+    AINodeSSHSetupError,
+    AINodeSSHSetupService,
+)
 from src.mediahub.services.profile_service import ProfileService
 from src.mediahub.services.settings_service import SettingsService
 
@@ -252,7 +256,7 @@ class GlobalSettingsPanel(QWidget):
         self.ai_connection_status = QLabel("Noch nicht geprüft.")
         self.ai_connection_status.setWordWrap(True)
 
-        self.btn_test_ai_node = QPushButton("AI-Node-Verbindung testen")
+        self.btn_test_ai_node = QPushButton("AI-Node einrichten / Verbindung prüfen")
         self.btn_test_ai_node.setMinimumHeight(32)
         self.btn_test_ai_node.clicked.connect(self.test_ai_node_connection)
 
@@ -280,48 +284,139 @@ class GlobalSettingsPanel(QWidget):
         self.content_layout.addWidget(group)
 
     def test_ai_node_connection(self):
-        settings = {
-            "ai": {
-                "node_enabled": self.ai_node_enabled.isChecked(),
-                "node_host": self.ai_node_host.text().strip(),
-                "api_port": self.ai_node_api_port.value(),
-                "api_token": self.ai_node_api_token.text().strip(),
-                "ssh_port": self.ai_ssh_port.value(),
-                "ssh_username": self.ai_ssh_username.text().strip(),
-                "install_path": self.ai_install_path.text().strip(),
-            }
-        }
-
+        self.btn_test_ai_node.setEnabled(False)
         self.ai_connection_status.setText("Verbindung wird geprüft ...")
 
-        service = AINodeService.from_settings(
-            settings,
-            timeout=5.0,
-        )
-        health = service.health()
+        host = self.ai_node_host.text().strip()
+        ssh_password = self.ai_ssh_password.text()
 
-        if not health.online:
-            self.ai_connection_status.setText(
-                f"Keine Verbindung zum AI-Node: {health.message}"
+        try:
+            if not self.ai_node_enabled.isChecked():
+                self.ai_connection_status.setText(
+                    "Der Raspberry-Pi-AI-Node ist deaktiviert."
+                )
+                return
+
+            if not host:
+                self.ai_connection_status.setText(
+                    "Bitte zuerst die AI-Node-Adresse eintragen."
+                )
+                return
+
+            token = self.ai_node_api_token.text().strip()
+
+            if not token:
+                if not ssh_password:
+                    self.ai_connection_status.setText(
+                        "Kein API-Token vorhanden. Bitte einmalig das "
+                        "SSH-Passwort eintragen und erneut prüfen."
+                    )
+                    return
+
+                self.ai_connection_status.setText(
+                    "API-Token wird einmalig über SSH eingerichtet ..."
+                )
+
+                setup = AINodeSSHSetupService(
+                    host=host,
+                    port=self.ai_ssh_port.value(),
+                    username=(
+                        self.ai_ssh_username.text().strip()
+                        or "mediahub"
+                    ),
+                    password=ssh_password,
+                )
+                result = setup.configure()
+                token = result.api_token
+                self.ai_node_api_token.setText(token)
+
+                data = self.settings_service.load()
+                if not isinstance(data, dict):
+                    data = {}
+                ai = data.get("ai")
+                if not isinstance(ai, dict):
+                    ai = {}
+                ai.update(
+                    {
+                        "node_enabled": True,
+                        "node_host": host,
+                        "api_port": self.ai_node_api_port.value(),
+                        "api_token": token,
+                        "ssh_port": self.ai_ssh_port.value(),
+                        "ssh_username": (
+                            self.ai_ssh_username.text().strip()
+                            or "mediahub"
+                        ),
+                        "install_path": (
+                            self.ai_install_path.text().strip()
+                            or "/opt/mediahub/ai-node"
+                        ),
+                        "mode": self.ai_mode.currentText(),
+                    }
+                )
+                data["ai"] = ai
+                self.settings_service.save(data)
+
+            settings = {
+                "ai": {
+                    "node_enabled": True,
+                    "node_host": host,
+                    "api_port": self.ai_node_api_port.value(),
+                    "api_token": token,
+                    "ssh_port": self.ai_ssh_port.value(),
+                    "ssh_username": (
+                        self.ai_ssh_username.text().strip()
+                        or "mediahub"
+                    ),
+                    "install_path": (
+                        self.ai_install_path.text().strip()
+                        or "/opt/mediahub/ai-node"
+                    ),
+                }
+            }
+
+            service = AINodeService.from_settings(
+                settings,
+                timeout=8.0,
             )
-            return
+            health = service.health()
 
-        detected = (
-            health.detected_plugins
-            if health.detected_plugins is not None
-            else "?"
-        )
-        loaded = (
-            health.loaded_plugins
-            if health.loaded_plugins is not None
-            else "?"
-        )
+            if not health.online:
+                self.ai_connection_status.setText(
+                    f"Keine Verbindung zum AI-Node: {health.message}"
+                )
+                return
 
-        self.ai_connection_status.setText(
-            f"AI-Node online – Status: {health.status}, "
-            f"Version: {health.version}, "
-            f"Plugins erkannt: {detected}, geladen: {loaded}"
-        )
+            plugins = service.list_plugins()
+            detected = (
+                health.detected_plugins
+                if health.detected_plugins is not None
+                else len(plugins)
+            )
+            loaded = (
+                health.loaded_plugins
+                if health.loaded_plugins is not None
+                else "?"
+            )
+
+            self.ai_connection_status.setText(
+                "AI-Node online – "
+                f"Version {health.version}; "
+                f"{detected} Plugin(s) erkannt, "
+                f"{loaded} geladen; "
+                "API-Token verfügbar."
+            )
+        except AINodeSSHSetupError as error:
+            self.ai_connection_status.setText(
+                f"Automatische Einrichtung fehlgeschlagen: {error}"
+            )
+        except Exception as error:
+            self.ai_connection_status.setText(
+                f"Verbindungsprüfung fehlgeschlagen: {error}"
+            )
+        finally:
+            self.ai_ssh_password.clear()
+            self.btn_test_ai_node.setEnabled(True)
 
     def _build_tools_group(self):
         group = QGroupBox("Tool-Status")

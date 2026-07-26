@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from pathlib import Path
+
 import hashlib
 import json
 import urllib.error
@@ -147,9 +149,9 @@ class AINodeService:
             raise AINodeConnectionError(
                 f"AI-Plugin-Paket wurde nicht gefunden: {path}"
             )
-        if path.suffix.lower() != ".zip":
+        if path.suffix.lower() not in {".zip", ".mhaiplugin"}:
             raise AINodeConnectionError(
-                "AI-Plugins müssen als ZIP-Paket vorliegen."
+                "AI-Plugins müssen als .mhaiplugin- oder ZIP-Paket vorliegen."
             )
 
         body = path.read_bytes()
