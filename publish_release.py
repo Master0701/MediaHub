@@ -137,10 +137,141 @@ def verify_license_files() -> None:
         ROOT / "licenses" / "LGPL-3.0.txt",
         ROOT / "licenses" / "MIT.txt",
         ROOT / "licenses" / "Unlicense.txt",
+        ROOT / "licenses" / "CC-BY-NC-ND-3.0.txt",
     ]
     missing = [str(path.relative_to(ROOT)) for path in required if not path.exists() or path.stat().st_size == 0]
     if missing:
         raise RuntimeError("Lizenzprüfung fehlgeschlagen. Fehlend oder leer: " + ", ".join(missing))
+
+
+def git_output(*command: str) -> str:
+    result = subprocess.run(
+        ["git", *command],
+        cwd=ROOT,
+        check=True,
+        capture_output=True,
+        text=True,
+        encoding="utf-8",
+        errors="replace",
+    )
+    return result.stdout.strip()
+
+
+def working_tree_entries() -> list[str]:
+    output = git_output(
+        "status", "--porcelain=v1", "--untracked-files=all"
+    )
+    return [line for line in output.splitlines() if line.strip()]
+
+
+def ensure_clean_and_synced_start(branch: str) -> None:
+    entries = working_tree_entries()
+    if entries:
+        paths = [
+            line[3:].strip() if len(line) > 3 else line.strip()
+            for line in entries
+        ]
+        shown = paths[:40]
+        suffix = (
+            f"\n… und {len(paths) - len(shown)} weitere Datei(en)"
+            if len(paths) > len(shown)
+            else ""
+        )
+        raise RuntimeError(
+            "Release abgebrochen: Der Arbeitsbaum ist nicht sauber.\n"
+            "Bereits vorhandene Änderungen werden niemals automatisch "
+            "in einen Release aufgenommen.\n\n"
+            + "\n".join(shown)
+            + suffix
+        )
+
+    run("git", "fetch", "origin", branch)
+    head = git_output("rev-parse", "HEAD")
+    remote = git_output("rev-parse", f"origin/{branch}")
+    if head != remote:
+        raise RuntimeError(
+            f"Release abgebrochen: HEAD und origin/{branch} sind nicht "
+            f"identisch.\nLokal: {head}\nRemote: {remote}"
+        )
+
+
+ALLOWED_RELEASE_PATHS = {
+    "README.md",
+    "CHANGELOG.md",
+    "version_info.txt",
+    "installer/version_generated.iss",
+    "src/mediahub/app_info.py",
+    "RELEASE_NOTES_PENDING.md",
+}
+ALLOWED_RELEASE_PREFIXES = (
+    "assets/docs/",
+    "docs/",
+)
+
+
+def _normalized_status_path(line: str) -> str:
+    path = line[3:].strip() if len(line) > 3 else line.strip()
+    if " -> " in path:
+        path = path.split(" -> ", 1)[1]
+    return path.replace("\\", "/")
+
+
+def validate_generated_release_changes() -> list[str]:
+    paths = [_normalized_status_path(line) for line in working_tree_entries()]
+    unexpected = [
+        path
+        for path in paths
+        if path not in ALLOWED_RELEASE_PATHS
+        and not path.startswith(ALLOWED_RELEASE_PREFIXES)
+    ]
+    if unexpected:
+        raise RuntimeError(
+            "Release abgebrochen: Nach der automatischen "
+            "Release-Vorbereitung wurden unerwartete Dateien geändert.\n\n"
+            + "\n".join(unexpected)
+        )
+    if not paths:
+        raise RuntimeError(
+            "Release abgebrochen: Die Release-Vorbereitung hat keine "
+            "commitfähigen Änderungen erzeugt."
+        )
+    return paths
+
+
+def stage_release_changes(paths: list[str]) -> None:
+    regular = [path for path in paths if path != PENDING_RELEASE_NOTES.name]
+    if regular:
+        run("git", "add", "--", *regular)
+    run("git", "add", "-f", "--", PENDING_RELEASE_NOTES.name)
+
+    staged = git_output("diff", "--cached", "--name-only")
+    staged_paths = {
+        line.strip().replace("\\", "/")
+        for line in staged.splitlines()
+        if line.strip()
+    }
+    unexpected = [
+        path
+        for path in staged_paths
+        if path not in ALLOWED_RELEASE_PATHS
+        and not path.startswith(ALLOWED_RELEASE_PREFIXES)
+    ]
+    if unexpected:
+        raise RuntimeError(
+            "Release abgebrochen: Im Git-Index befinden sich unerwartete "
+            "Dateien:\n\n" + "\n".join(sorted(unexpected))
+        )
+
+
+def ensure_remote_points_to_head(branch: str) -> None:
+    head = git_output("rev-parse", "HEAD")
+    remote = git_output("rev-parse", f"origin/{branch}")
+    if head != remote:
+        raise RuntimeError(
+            f"Push-Prüfung fehlgeschlagen: origin/{branch} zeigt nicht "
+            "auf den neuen Release-Commit."
+        )
+
 
 def current_branch() -> str:
     result = subprocess.run(
@@ -172,6 +303,14 @@ def main() -> int:
     if not (ROOT / ".git").exists():
         raise SystemExit("Kein Git-Repository gefunden. Starte den Assistenten aus dem MediaHub-Quellordner.")
 
+    branch = current_branch()
+    ensure_clean_and_synced_start(branch)
+    print(
+        f"Git-Ausgangsprüfung erfolgreich: sauber und synchron mit "
+        f"origin/{branch}.",
+        flush=True,
+    )
+
     tag = f"v{version}"
     if tag_exists(tag):
         raise SystemExit(f"Der Git-Tag {tag} existiert bereits. Bitte eine neue Version verwenden.")
@@ -195,18 +334,17 @@ def main() -> int:
     if not args.skip_local_build:
         run(sys.executable, "build_release.py")
 
-    branch = current_branch()
-    run("git", "add", "-A")
-
-    # Die temporären Release-Notizen stehen absichtlich in .gitignore.
-    # Für den Release-Commit werden sie trotzdem aufgenommen, damit der
-    # GitHub-Actions-Checkout des Tags die Datei sicher enthält.
     if not PENDING_RELEASE_NOTES.exists():
         raise SystemExit("RELEASE_NOTES_PENDING.md fehlt vor dem Git-Commit.")
-    run("git", "add", "-f", str(PENDING_RELEASE_NOTES.name))
 
+    generated_paths = validate_generated_release_changes()
+    stage_release_changes(generated_paths)
     run("git", "commit", "-m", f"MediaHub {tag}")
     run("git", "push", "origin", branch)
+    ensure_remote_points_to_head(branch)
+
+    # Der Tag entsteht erst nach dem geprüften Push und zeigt damit
+    # garantiert auf den veröffentlichten Release-Commit.
     run("git", "tag", "-a", tag, "-m", f"MediaHub {tag}")
     run("git", "push", "origin", tag)
 

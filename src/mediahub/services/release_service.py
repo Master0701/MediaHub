@@ -7,7 +7,12 @@ from pathlib import Path
 
 
 class ReleaseService:
-    """Erstellt sichere Release-Vorbereitungen ohne private Arbeitsdaten zu löschen."""
+    """Erstellt sichere Release-Vorbereitungen ohne private Arbeitsdaten zu löschen.
+
+    Der aufrufende Release-Ablauf muss vorher einen sauberen und mit
+    origin synchronen Git-Stand erzwingen. Dieser Service kopiert den
+    geprüften Quellstand und führt selbst keine Git-Kommandos aus.
+    """
 
     def __init__(self, base_dir: Path, app_version: str = "", logger=None):
         self.base_dir = Path(base_dir)

@@ -143,6 +143,101 @@ class PluginLoader:
             web_ui_shell=bool(web_ui.get("shell", False)),
         )
 
+
+    def _install_declared_tools_after_plugin_install(
+        self,
+        plugin: PluginInfo,
+        manifest_data: dict,
+    ) -> list[str]:
+        """Installiert ausdrücklich freigegebene Plugin-Tools sichtbar mit.
+
+        Die Plugin-Installation selbst ist die Benutzerbestätigung. Der
+        automatische Tool-Schritt wird nur ausgeführt, wenn das Manifest
+        ``install_declared_tools_on_plugin_install`` aktiviert.
+
+        Pflichttool-Fehler brechen die Plugin-Installation ab. Optionale
+        Tool-Fehler werden als Warnung zurückgegeben; das Plugin bleibt mit
+        seinen eigenen Fallbacks nutzbar.
+        """
+
+        if not bool(
+            manifest_data.get(
+                "install_declared_tools_on_plugin_install",
+                False,
+            )
+        ):
+            return []
+
+        from src.mediahub.services.tool_service import ToolService
+
+        tool_service = ToolService(self.base_dir)
+        required_tools = list(plugin.required_tools or [])
+        optional_tools = [
+            tool_id
+            for tool_id in list(plugin.optional_tools or [])
+            if tool_id not in required_tools
+        ]
+
+        messages: list[str] = []
+        declared = [
+            *(("required", tool_id) for tool_id in required_tools),
+            *(("optional", tool_id) for tool_id in optional_tools),
+        ]
+
+        for importance, tool_id in declared:
+            status = tool_service.find_tool_status(
+                tool_id,
+                include_version=False,
+            )
+            if status is None:
+                message = f"Unbekanntes Plugin-Tool: {tool_id}"
+                if importance == "required":
+                    raise RuntimeError(message)
+                messages.append(f"WARNUNG: {message}")
+                continue
+
+            display_name = str(
+                status.get("display_name") or tool_id
+            )
+            if bool(status.get("installed")):
+                messages.append(
+                    f"Tool bereits vorhanden: {display_name}"
+                )
+                continue
+
+            if not bool(status.get("can_install")):
+                message = (
+                    f"Für {display_name} ist keine automatische "
+                    "portable Installation verfügbar."
+                )
+                if importance == "required":
+                    raise RuntimeError(message)
+                messages.append(f"WARNUNG: {message}")
+                continue
+
+            messages.append(
+                f"Tool wird portabel eingerichtet: {display_name}"
+            )
+            try:
+                installed = tool_service.install_plugin_tool(tool_id)
+            except Exception as error:
+                message = (
+                    f"{display_name} konnte nicht eingerichtet werden: "
+                    f"{error}"
+                )
+                if importance == "required":
+                    raise RuntimeError(message) from error
+                messages.append(f"WARNUNG: {message}")
+                continue
+
+            path = installed.get("path")
+            messages.append(
+                f"Tool eingerichtet: {display_name}"
+                + (f" ({path})" if path else "")
+            )
+
+        return messages
+
     def _safe_extract(self, archive: zipfile.ZipFile, target: Path) -> None:
         target_resolved = target.resolve()
         for member in archive.infolist():
@@ -172,6 +267,9 @@ class PluginLoader:
                 return False, "Keine plugin.json im Plugin gefunden."
 
             manifest = manifest_files[0]
+            manifest_data = json.loads(
+                manifest.read_text(encoding="utf-8")
+            )
             plugin = self.load_manifest(manifest)
             if plugin is None:
                 return False, "plugin.json ist ungültig."
@@ -188,7 +286,23 @@ class PluginLoader:
 
             source_dir = temp_dir if manifest.parent == temp_dir else manifest.parent
             shutil.copytree(source_dir, target_dir)
-            return True, f"Plugin installiert: {plugin.name} v{plugin.version}"
+
+            try:
+                tool_messages = (
+                    self._install_declared_tools_after_plugin_install(
+                        plugin,
+                        manifest_data,
+                    )
+                )
+            except Exception:
+                shutil.rmtree(target_dir, ignore_errors=True)
+                raise
+
+            message_lines = [
+                f"Plugin installiert: {plugin.name} v{plugin.version}"
+            ]
+            message_lines.extend(tool_messages)
+            return True, "\n".join(message_lines)
         except Exception as error:
             return False, f"Plugin konnte nicht installiert werden:\n{error}"
         finally:

@@ -50,6 +50,32 @@ def run(command, cwd=ROOT):
     subprocess.run(command, cwd=cwd, check=True, env=_utf8_env())
 
 
+
+def verify_release_licenses():
+    required = [
+        ROOT / "THIRD_PARTY_NOTICES.md",
+        ROOT / "THIRD_PARTY_LICENSES.md",
+        ROOT / "licenses" / "Apache-2.0.txt",
+        ROOT / "licenses" / "BSD-2-Clause.txt",
+        ROOT / "licenses" / "GPL-2.0.txt",
+        ROOT / "licenses" / "LGPL-3.0.txt",
+        ROOT / "licenses" / "MIT.txt",
+        ROOT / "licenses" / "Unlicense.txt",
+        ROOT / "licenses" / "CC-BY-NC-ND-3.0.txt",
+    ]
+    missing = [
+        str(path.relative_to(ROOT))
+        for path in required
+        if not path.exists() or path.stat().st_size == 0
+    ]
+    if missing:
+        raise RuntimeError(
+            "Release-Lizenzprüfung fehlgeschlagen. Fehlend oder leer: "
+            + ", ".join(missing)
+        )
+    print("Release-Lizenzprüfung erfolgreich.")
+
+
 def clean():
     print("Räume alte Builds auf...")
 
@@ -233,6 +259,7 @@ def cleanup_temp_release_folders():
 
 
 def main():
+    verify_release_licenses()
     prepare_version_files()
     clean()
     build_docs()

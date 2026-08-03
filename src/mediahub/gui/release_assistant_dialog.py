@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import shutil
+import subprocess
 import sys
 from pathlib import Path
 
@@ -164,6 +165,8 @@ class ReleaseAssistantDialog(QDialog):
         for row, (key, label) in enumerate(rows):
             status_layout.addWidget(QLabel(label + ":"), row, 0)
             value = QLabel("wird geprüft ...")
+            value.setWordWrap(True)
+            value.setMaximumHeight(54)
             value.setTextInteractionFlags(Qt.TextSelectableByMouse)
             self.status_labels[key] = value
             status_layout.addWidget(value, row, 1)
@@ -224,6 +227,74 @@ class ReleaseAssistantDialog(QDialog):
         self.btn_clear_log.clicked.connect(self.log.clear)
         self.btn_close.clicked.connect(self.close)
 
+
+    def _git_output(self, *args: str) -> str:
+        result = subprocess.run(
+            ["git", *args],
+            cwd=self.root_dir,
+            check=True,
+            capture_output=True,
+            text=True,
+            encoding="utf-8",
+            errors="replace",
+        )
+        return result.stdout.strip()
+
+    def _release_git_preflight(self) -> tuple[bool, str]:
+        """Prüft, ob der Release von einem sauberen Remote-Stand startet."""
+        if not (self.root_dir / ".git").exists():
+            return False, "Kein Git-Repository gefunden."
+
+        try:
+            porcelain = self._git_output(
+                "status", "--porcelain=v1", "--untracked-files=all"
+            )
+        except Exception as error:
+            return False, f"Git-Status konnte nicht geprüft werden: {error}"
+
+        if porcelain:
+            changed = [
+                line[3:].strip() if len(line) > 3 else line.strip()
+                for line in porcelain.splitlines()
+            ]
+            return (
+                False,
+                f"⚠ Arbeitsbaum nicht sauber: {len(changed)} "
+                "geänderte oder neue Datei(en). "
+                "Release ist gesperrt.",
+            )
+
+        try:
+            branch = self._git_output("branch", "--show-current")
+            if not branch:
+                return False, "Aktueller Git-Branch konnte nicht ermittelt werden."
+            subprocess.run(
+                ["git", "fetch", "origin", branch],
+                cwd=self.root_dir,
+                check=True,
+                capture_output=True,
+                text=True,
+                encoding="utf-8",
+                errors="replace",
+            )
+            head = self._git_output("rev-parse", "HEAD")
+            remote = self._git_output("rev-parse", f"origin/{branch}")
+        except Exception as error:
+            return False, f"GitHub-Synchronisierung konnte nicht geprüft werden: {error}"
+
+        if head != remote:
+            return (
+                False,
+                f"Lokaler HEAD und origin/{branch} sind nicht identisch.\n\n"
+                f"Lokal:  {head[:12]}\nRemote: {remote[:12]}\n\n"
+                "Bitte zuerst Pull/Rebase beziehungsweise Push abschließen.",
+            )
+
+        return True, (
+            f"✔ Arbeitsbaum sauber · HEAD entspricht origin/{branch} "
+            f"({head[:12]})"
+        )
+
     def python_cmd(self, script_name: str) -> list[str]:
         return [sys.executable, str(self.root_dir / script_name)]
 
@@ -249,7 +320,13 @@ class ReleaseAssistantDialog(QDialog):
         self.set_status("tools", self.ok_warn([bool(pyinstaller), bool(git)], f"PyInstaller: {bool(pyinstaller)} · Git: {bool(git)}"))
 
         git_dir = self.root_dir / ".git"
-        self.set_status("git", "✔ Repository erkannt" if git_dir.exists() else "⚠ Kein .git-Ordner gefunden")
+        if git_dir.exists():
+            git_ok, git_message = self._release_git_preflight()
+            self.set_status("git", git_message)
+            self.btn_release.setEnabled(git_ok and self.process is None)
+        else:
+            self.set_status("git", "⚠ Kein .git-Ordner gefunden")
+            self.btn_release.setEnabled(False)
 
         github_ok = False
         git_config = self.root_dir / ".git" / "config"
@@ -269,6 +346,7 @@ class ReleaseAssistantDialog(QDialog):
             self.root_dir / "licenses" / "LGPL-3.0.txt",
             self.root_dir / "licenses" / "MIT.txt",
             self.root_dir / "licenses" / "Unlicense.txt",
+            self.root_dir / "licenses" / "CC-BY-NC-ND-3.0.txt",
         ]
         licenses_ok = all(path.exists() and path.stat().st_size > 0 for path in license_paths)
         self.set_status("licenses", "✔ Pflicht-Lizenzdateien vollständig" if licenses_ok else "⚠ Pflicht-Lizenzdateien fehlen")
@@ -322,7 +400,48 @@ class ReleaseAssistantDialog(QDialog):
         prefix = "✔" if all(checks) else "⚠"
         return f"{prefix} {detail}"
 
+    def _dirty_git_details(self) -> str:
+        try:
+            porcelain = self._git_output(
+                "status", "--porcelain=v1", "--untracked-files=all"
+            )
+        except Exception as error:
+            return f"Git-Status konnte nicht gelesen werden: {error}"
+
+        changed = [
+            line[3:].strip() if len(line) > 3 else line.strip()
+            for line in porcelain.splitlines()
+            if line.strip()
+        ]
+        shown = changed[:40]
+        suffix = (
+            f"\n… und {len(changed) - len(shown)} weitere Datei(en)"
+            if len(changed) > len(shown)
+            else ""
+        )
+        if not shown:
+            return ""
+        return (
+            "Der Arbeitsbaum ist nicht sauber. Bereits vorhandene "
+            "Änderungen dürfen nicht automatisch in einen Release "
+            "aufgenommen werden.\n\n"
+            + "\n".join(shown)
+            + suffix
+        )
+
     def release_one_click(self):
+        git_ok, git_message = self._release_git_preflight()
+        if not git_ok:
+            details = self._dirty_git_details()
+            QMessageBox.critical(
+                self,
+                "Release durch Git-Prüfung gesperrt",
+                details or git_message,
+            )
+            self.append_log("Release abgebrochen: " + git_message)
+            self.refresh_status()
+            return
+
         version = self.version_input.text().strip().lstrip("v")
         if not version:
             QMessageBox.warning(self, "Version fehlt", "Bitte eine neue Versionsnummer eingeben, zum Beispiel 1.0.4.")
@@ -337,6 +456,7 @@ class ReleaseAssistantDialog(QDialog):
             self.root_dir / "licenses" / "LGPL-3.0.txt",
             self.root_dir / "licenses" / "MIT.txt",
             self.root_dir / "licenses" / "Unlicense.txt",
+            self.root_dir / "licenses" / "CC-BY-NC-ND-3.0.txt",
         ]
         missing_licenses = [str(path.relative_to(self.root_dir)) for path in required_licenses if not path.exists() or path.stat().st_size == 0]
         if missing_licenses:
@@ -475,7 +595,9 @@ class ReleaseAssistantDialog(QDialog):
         answer = QMessageBox.question(
             self,
             "Änderungen vormerken",
-            "Alle Änderungen mit 'git add -A' vormerken?",
+            "WARNUNG: Wirklich ALLE Änderungen mit 'git add -A' vormerken?\n\n"
+            "Dieser manuelle Befehl kann unfertige Dateien einschließen und "
+            "ist nicht Teil des automatischen Release-Ablaufs.",
             QMessageBox.Yes | QMessageBox.No,
             QMessageBox.No,
         )

@@ -10,8 +10,8 @@ def test_tool_manager_data_contains_all_known_tools(tmp_path: Path):
 
     data = service.get_tool_manager_data(include_versions=False)
 
-    assert data["summary"]["total"] == 7
-    assert len(data["tools"]) == 7
+    assert data["summary"]["total"] == 8
+    assert len(data["tools"]) == 8
     assert {item["tool_id"] for item in data["tools"]} == {
         "yt-dlp",
         "ffmpeg",
@@ -20,6 +20,7 @@ def test_tool_manager_data_contains_all_known_tools(tmp_path: Path):
         "mediainfo",
         "tesseract",
         "mkvtoolnix",
+        "renamer",
     }
 
 
@@ -310,7 +311,7 @@ def test_install_missing_required_tools_combines_core_and_plugin_tools(tmp_path:
         state["plugin_missing"] = []
         return [{"tool_id": "mediainfo", "display_name": "MediaInfo CLI", "installed": True}]
 
-    monkeypatch.setattr(service, "install_missing_required_plugin_tools", fake_install_plugin_tools)
+    monkeypatch.setattr(service, "install_missing_declared_plugin_tools", fake_install_plugin_tools)
 
     result = service.install_missing_required_tools()
 
@@ -356,3 +357,23 @@ def test_plugin_tools_never_fall_back_to_program_files(tmp_path: Path, monkeypat
 
     assert path == tmp_path / "tools" / "mediainfo" / "mediainfo.exe"
     assert not path.exists()
+
+
+
+def test_renamer_definition_is_portable_and_optional(tmp_path: Path):
+    service = ToolService(tmp_path)
+
+    definition = service.tool_definition("renamer")
+    status = service.find_tool_status(
+        "renamer",
+        include_version=False,
+    )
+
+    assert definition["install_kind"] == "page_zip"
+    assert definition["exe"] == "ReNamer.exe"
+    assert definition["version_probe"] is False
+    assert status is not None
+    assert status["path"] == (
+        tmp_path / "tools" / "renamer" / "ReNamer.exe"
+    )
+    assert status["can_install"] is True

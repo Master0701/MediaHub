@@ -115,7 +115,27 @@ class ToolService:
             "install_kind": "page_zip",
             "search_names": ["mkvmerge.exe"],
         },
-    }
+            "renamer": {
+            "display_name": "ReNamer Portable",
+            "folder": "renamer",
+            "exe": "ReNamer.exe",
+            "category": "plugin",
+            "license": (
+                "Lite: CC BY-NC-ND 3.0 – nur nicht-kommerzielle Nutzung; "
+                "für kommerzielle Nutzung ist eine Pro-Lizenz erforderlich"
+            ),
+            "homepage": "https://www.den4b.com/products/renamer",
+            "version_args": [],
+            "version_probe": False,
+            "first_line_only": True,
+            "download_page": "https://www.den4b.com/download/renamer/portable",
+            "asset_pattern": (
+                r"/download/renamer/portable\?key=[a-f0-9]+"
+            ),
+            "install_kind": "page_zip",
+            "search_names": ["ReNamer.exe"],
+        },
+}
 
     # Installationsdaten werden zentral aus tool_catalog.py übernommen.
     for _tool_id, _install_data in PLUGIN_TOOL_INSTALLS.items():
