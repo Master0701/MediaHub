@@ -173,3 +173,6 @@ tools/logs/
 # Portable Tool-Installationen
 # Binärdateien bleiben durch tools/**/*.exe, *.dll und Archive ignoriert.
 # manifest.json-Dateien werden absichtlich versioniert.
+# Installierte MediaHub-Plugins – Quellen liegen in MediaHub_Plugins
+plugins/*
+!plugins/.gitignore
