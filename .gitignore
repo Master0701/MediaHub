@@ -176,9 +176,7 @@ tools/logs/
 # Installierte MediaHub-Plugins – Quellen liegen in MediaHub_Plugins
 plugins/*
 !plugins/.gitignore
+
 # Laufzeit-Tools werden vom MediaHub-Tool-Manager geladen
 tools/*
 !tools/.gitignore
-# Zusatztools werden vom MediaHub-Tool-Manager geladen
-tools/*
-!tools/.gitkeep
