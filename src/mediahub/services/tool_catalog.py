@@ -42,4 +42,10 @@ PLUGIN_TOOL_INSTALLS = {
         ],
         "search_names": ["mkvmerge.exe"],
     },
+    "renamer": {
+        "download_page": "https://www.den4b.com/download/renamer/portable",
+        "asset_pattern": r"/download/renamer/portable\?key=[a-f0-9]+",
+        "archive_type": "zip",
+        "search_names": ["ReNamer.exe"],
+    },
 }

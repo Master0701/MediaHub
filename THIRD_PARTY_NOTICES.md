@@ -21,6 +21,7 @@ MediaHub beansprucht keine Rechte an diesen Drittkomponenten. Die Aufnahme in ei
 | MediaInfo | MediaArea.net SARL und Mitwirkende | BSD 2-Clause License. |
 | Tesseract OCR | Google LLC, Tesseract-Mitwirkende und weitere Rechteinhaber | Apache License 2.0; Abhängigkeiten und Sprachdaten können eigene Lizenzen besitzen. |
 | MKVToolNix | Moritz Bunkus und Mitwirkende | Die Lizenzbedingungen der konkret installierten MKVToolNix-Ausgabe sind maßgeblich. |
+| ReNamer Portable | Furious Technologies Limited / den4b | ReNamer Lite darf ausschließlich nicht-kommerziell verwendet werden. Für kommerzielle Nutzung ist eine Pro-Lizenz erforderlich. MediaHub bündelt ReNamer nicht, sondern lädt die portable Ausgabe nach Benutzerbestätigung von der offiziellen Herstellerseite. |
 
 ## Plugins
 
@@ -42,3 +43,5 @@ Projektseiten:
 - MediaInfo: https://github.com/MediaArea/MediaInfo
 - Tesseract OCR: https://github.com/tesseract-ocr/tesseract
 - MKVToolNix: https://mkvtoolnix.download/
+- ReNamer: https://www.den4b.com/products/renamer
+- ReNamer-Lizenz: https://www.den4b.com/license
