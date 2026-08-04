@@ -240,6 +240,47 @@ class ReleaseAssistantDialog(QDialog):
         )
         return result.stdout.strip()
 
+    @staticmethod
+    def _forbidden_release_paths(paths: list[str]) -> list[str]:
+        """Erkennt Dateien, die niemals in einen Release gehören."""
+        forbidden_prefixes = (
+            "tools/",
+            "plugins/",
+            "logs/",
+            "release/",
+            "release_ready/",
+            "dist/",
+            "build/",
+            "__pycache__/",
+            ".pytest_cache/",
+            ".mypy_cache/",
+        )
+        forbidden_fragments = (
+            "/__pycache__/",
+            "/.pytest_cache/",
+            "/.mypy_cache/",
+        )
+        forbidden_names = (
+            "_patch_backup_",
+            "_release_assistant_",
+            "_renamer_",
+        )
+
+        result: list[str] = []
+        for raw_path in paths:
+            path = raw_path.replace("\\", "/").lstrip('"')
+            if path in {"tools/.gitignore", "plugins/.gitignore"}:
+                continue
+            if path.startswith(forbidden_prefixes):
+                result.append(path)
+                continue
+            if any(fragment in path for fragment in forbidden_fragments):
+                result.append(path)
+                continue
+            if any(name in path for name in forbidden_names):
+                result.append(path)
+        return result
+
     def _release_git_preflight(self) -> tuple[bool, str]:
         """Prüft, ob der Release von einem sauberen Remote-Stand startet."""
         if not (self.root_dir / ".git").exists():
@@ -252,16 +293,17 @@ class ReleaseAssistantDialog(QDialog):
         except Exception as error:
             return False, f"Git-Status konnte nicht geprüft werden: {error}"
 
-        if porcelain:
-            changed = [
-                line[3:].strip() if len(line) > 3 else line.strip()
-                for line in porcelain.splitlines()
-            ]
+        changed = [
+            line[3:].strip() if len(line) > 3 else line.strip()
+            for line in porcelain.splitlines()
+            if line.strip()
+        ]
+        forbidden = self._forbidden_release_paths(changed)
+        if forbidden:
             return (
                 False,
-                f"⚠ Arbeitsbaum nicht sauber: {len(changed)} "
-                "geänderte oder neue Datei(en). "
-                "Release ist gesperrt.",
+                "Release ist wegen Laufzeit-, Patch- oder Fremddateien "
+                f"gesperrt: {len(forbidden)} problematische Datei(en).",
             )
 
         try:
@@ -290,8 +332,13 @@ class ReleaseAssistantDialog(QDialog):
                 "Bitte zuerst Pull/Rebase beziehungsweise Push abschließen.",
             )
 
+        if changed:
+            return True, (
+                f"✔ {len(changed)} Programmänderung(en) werden übernommen · "
+                f"origin/{branch} synchron ({head[:12]})"
+            )
         return True, (
-            f"✔ Arbeitsbaum sauber · HEAD entspricht origin/{branch} "
+            f"✔ Keine offenen Programmänderungen · origin/{branch} synchron "
             f"({head[:12]})"
         )
 
@@ -413,6 +460,7 @@ class ReleaseAssistantDialog(QDialog):
             for line in porcelain.splitlines()
             if line.strip()
         ]
+        changed = self._forbidden_release_paths(changed)
         shown = changed[:40]
         suffix = (
             f"\n… und {len(changed) - len(shown)} weitere Datei(en)"

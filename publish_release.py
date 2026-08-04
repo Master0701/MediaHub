@@ -164,25 +164,44 @@ def working_tree_entries() -> list[str]:
     return [line for line in output.splitlines() if line.strip()]
 
 
+def _normalized_status_path(line: str) -> str:
+    """Liest den Dateipfad aus einer git-status --porcelain-Zeile."""
+    path = line[3:].strip() if len(line) > 3 else line.strip()
+    if " -> " in path:
+        path = path.split(" -> ", 1)[1]
+    return path.replace("\\", "/").strip('"')
+
+
+def forbidden_release_paths(paths: list[str]) -> list[str]:
+    forbidden_prefixes = (
+        "tools/", "plugins/", "logs/", "release/", "release_ready/",
+        "dist/", "build/", "__pycache__/", ".pytest_cache/", ".mypy_cache/",
+    )
+    forbidden_fragments = ("/__pycache__/", "/.pytest_cache/", "/.mypy_cache/")
+    forbidden_names = ("_patch_backup_", "_release_assistant_", "_renamer_")
+    result = []
+    for raw_path in paths:
+        path = raw_path.replace("\\", "/").lstrip('"')
+        if path in {"tools/.gitignore", "plugins/.gitignore"}:
+            continue
+        if path.startswith(forbidden_prefixes):
+            result.append(path)
+            continue
+        if any(fragment in path for fragment in forbidden_fragments):
+            result.append(path)
+            continue
+        if any(name in path for name in forbidden_names):
+            result.append(path)
+    return result
+
+
 def ensure_clean_and_synced_start(branch: str) -> None:
-    entries = working_tree_entries()
-    if entries:
-        paths = [
-            line[3:].strip() if len(line) > 3 else line.strip()
-            for line in entries
-        ]
-        shown = paths[:40]
-        suffix = (
-            f"\n… und {len(paths) - len(shown)} weitere Datei(en)"
-            if len(paths) > len(shown)
-            else ""
-        )
+    paths = [_normalized_status_path(line) for line in working_tree_entries()]
+    forbidden = forbidden_release_paths(paths)
+    if forbidden:
         raise RuntimeError(
-            "Release abgebrochen: Der Arbeitsbaum ist nicht sauber.\n"
-            "Bereits vorhandene Änderungen werden niemals automatisch "
-            "in einen Release aufgenommen.\n\n"
-            + "\n".join(shown)
-            + suffix
+            "Release abgebrochen: Laufzeit-, Patch- oder Fremddateien dürfen "
+            "nicht veröffentlicht werden.\n\n" + "\n".join(forbidden[:50])
         )
 
     run("git", "fetch", "origin", branch)
@@ -195,71 +214,33 @@ def ensure_clean_and_synced_start(branch: str) -> None:
         )
 
 
-ALLOWED_RELEASE_PATHS = {
-    "README.md",
-    "CHANGELOG.md",
-    "version_info.txt",
-    "installer/version_generated.iss",
-    "src/mediahub/app_info.py",
-    "RELEASE_NOTES_PENDING.md",
-}
-ALLOWED_RELEASE_PREFIXES = (
-    "assets/docs/",
-    "docs/",
-)
-
-
-def _normalized_status_path(line: str) -> str:
-    path = line[3:].strip() if len(line) > 3 else line.strip()
-    if " -> " in path:
-        path = path.split(" -> ", 1)[1]
-    return path.replace("\\", "/")
-
-
-def validate_generated_release_changes() -> list[str]:
+def validate_release_changes() -> list[str]:
     paths = [_normalized_status_path(line) for line in working_tree_entries()]
-    unexpected = [
-        path
-        for path in paths
-        if path not in ALLOWED_RELEASE_PATHS
-        and not path.startswith(ALLOWED_RELEASE_PREFIXES)
-    ]
-    if unexpected:
+    forbidden = forbidden_release_paths(paths)
+    if forbidden:
         raise RuntimeError(
-            "Release abgebrochen: Nach der automatischen "
-            "Release-Vorbereitung wurden unerwartete Dateien geändert.\n\n"
-            + "\n".join(unexpected)
+            "Release abgebrochen: Nicht erlaubte Laufzeit-, Patch- oder "
+            "Fremddateien gefunden.\n\n" + "\n".join(forbidden[:50])
         )
     if not paths:
-        raise RuntimeError(
-            "Release abgebrochen: Die Release-Vorbereitung hat keine "
-            "commitfähigen Änderungen erzeugt."
-        )
+        raise RuntimeError("Release abgebrochen: Keine Änderungen für den Release.")
     return paths
 
 
 def stage_release_changes(paths: list[str]) -> None:
-    regular = [path for path in paths if path != PENDING_RELEASE_NOTES.name]
-    if regular:
-        run("git", "add", "--", *regular)
+    run("git", "add", "-A")
     run("git", "add", "-f", "--", PENDING_RELEASE_NOTES.name)
-
     staged = git_output("diff", "--cached", "--name-only")
-    staged_paths = {
+    staged_paths = [
         line.strip().replace("\\", "/")
         for line in staged.splitlines()
         if line.strip()
-    }
-    unexpected = [
-        path
-        for path in staged_paths
-        if path not in ALLOWED_RELEASE_PATHS
-        and not path.startswith(ALLOWED_RELEASE_PREFIXES)
     ]
-    if unexpected:
+    forbidden = forbidden_release_paths(staged_paths)
+    if forbidden:
         raise RuntimeError(
-            "Release abgebrochen: Im Git-Index befinden sich unerwartete "
-            "Dateien:\n\n" + "\n".join(sorted(unexpected))
+            "Release abgebrochen: Nicht erlaubte Dateien im Git-Index.\n\n"
+            + "\n".join(forbidden[:50])
         )
 
 
@@ -306,7 +287,7 @@ def main() -> int:
     branch = current_branch()
     ensure_clean_and_synced_start(branch)
     print(
-        f"Git-Ausgangsprüfung erfolgreich: sauber und synchron mit "
+        f"Git-Ausgangsprüfung erfolgreich: Programmänderungen erlaubt und synchron mit "
         f"origin/{branch}.",
         flush=True,
     )
@@ -337,7 +318,7 @@ def main() -> int:
     if not PENDING_RELEASE_NOTES.exists():
         raise SystemExit("RELEASE_NOTES_PENDING.md fehlt vor dem Git-Commit.")
 
-    generated_paths = validate_generated_release_changes()
+    generated_paths = validate_release_changes()
     stage_release_changes(generated_paths)
     run("git", "commit", "-m", f"MediaHub {tag}")
     run("git", "push", "origin", branch)
