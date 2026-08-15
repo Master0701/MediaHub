@@ -6,6 +6,8 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any, Callable
 
+from src.mediahub.plugins.capability_registry import CapabilityRegistry
+
 
 @dataclass
 class PluginInfo:
@@ -75,6 +77,41 @@ class MediaHubPluginAPI:
         self._wizard_provider = wizard_provider
         self._wizard_selection_provider = wizard_selection_provider
         self._plugin_provider = plugin_provider
+        self._capability_registry = CapabilityRegistry()
+
+
+    def register_capability(self, capability: str, provider: Any, *, owner_id: str) -> None:
+        self._capability_registry.register(capability, provider, owner_id=owner_id)
+
+    def unregister_plugin_capabilities(self, owner_id: str) -> int:
+        return self._capability_registry.unregister_owner(owner_id)
+
+    def resolve_capability(self, capability: str) -> Any | None:
+        return self._capability_registry.resolve(capability)
+
+    def get_capability_provider(self, capability: str) -> Any | None:
+        return self.resolve_capability(capability)
+
+    def find_capability_provider(self, capability: str) -> Any | None:
+        return self.resolve_capability(capability)
+
+    def get_plugin_capability(self, capability: str) -> Any | None:
+        return self.resolve_capability(capability)
+
+    def get_runtime_capabilities(self) -> dict[str, dict[str, str]]:
+        return self._capability_registry.status()
+
+    def has_capability(self, capability: str) -> bool:
+        return self.resolve_capability(capability) is not None
+
+    def capability_status(self, capability: str) -> dict[str, Any]:
+        key = str(capability or "").strip()
+        item = self.get_runtime_capabilities().get(key) or {}
+        return {
+            "capability": key,
+            "available": bool(item),
+            **item,
+        }
 
     def get_status(self) -> dict:
         result = {"application":"MediaHub","version":self.app_version,"connected":True,"channels":self.get_channel_count(),"playlists":self.get_playlist_count(),"videos":self.get_video_count()}

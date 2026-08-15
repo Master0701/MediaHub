@@ -219,6 +219,7 @@ class ToolService:
             "mediainfo": ["mediainfo.exe", "MediaInfo.exe"],
             "tesseract": ["tesseract.exe"],
             "mkvtoolnix": ["mkvmerge.exe", "mkvpropedit.exe", "mkvinfo.exe", "mkvextract.exe"],
+            "renamer": ["ReNamer.exe"],
         }
         for tool_id, names in groups.items():
             folder = self._tool_folder(tool_id)
@@ -456,6 +457,53 @@ class ToolService:
             destination = target_folder.joinpath(*parts)
             destination.parent.mkdir(parents=True, exist_ok=True)
             shutil.copy2(item, destination)
+
+    def apply_plugin_tool_defaults(
+        self,
+        tool_id: str,
+        defaults_dir: Path,
+        *,
+        overwrite: bool = False,
+    ) -> list[str]:
+        """Übernimmt vom Plugin bereitgestellte Standardkonfigurationen.
+
+        Leere Ordner werden über eine optionale `.gitkeep`-Datei vorbereitet.
+        Bei bereits eingerichteten Tools werden vorhandene Benutzerdaten nicht
+        überschrieben, solange `overwrite` nicht ausdrücklich gesetzt ist.
+        """
+
+        normalized = str(tool_id or "").strip().lower()
+        if normalized not in self.PLUGIN_TOOLS:
+            raise KeyError(f"Unbekanntes Plugin-Tool: {tool_id}")
+
+        source_root = Path(defaults_dir)
+        if not source_root.is_dir():
+            return []
+
+        target_root = self._tool_folder(normalized)
+        target_root.mkdir(parents=True, exist_ok=True)
+        copied: list[str] = []
+
+        for source in sorted(source_root.rglob("*")):
+            relative = source.relative_to(source_root)
+            destination = target_root / relative
+
+            if source.is_dir():
+                destination.mkdir(parents=True, exist_ok=True)
+                continue
+
+            if source.name == ".gitkeep":
+                destination.parent.mkdir(parents=True, exist_ok=True)
+                continue
+
+            if destination.exists() and not overwrite:
+                continue
+
+            destination.parent.mkdir(parents=True, exist_ok=True)
+            shutil.copy2(source, destination)
+            copied.append(str(relative).replace("\\", "/"))
+
+        return copied
 
     def install_plugin_tool(self, tool_id: str, log_callback=None) -> dict:
         """Installiert ein Plugin-Werkzeug portabel unter MediaHub/tools."""

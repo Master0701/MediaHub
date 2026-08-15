@@ -3,6 +3,7 @@ from __future__ import annotations
 import json
 import shutil
 import zipfile
+from datetime import datetime, timezone
 from pathlib import Path
 
 from src.mediahub.plugins.plugin_api import PluginInfo
@@ -144,10 +145,120 @@ class PluginLoader:
         )
 
 
+    def _tool_license_acceptance_path(self) -> Path:
+        return self.base_dir / "config" / "tool_license_acceptances.json"
+
+    def _load_tool_license_acceptances(self) -> dict:
+        path = self._tool_license_acceptance_path()
+        if not path.is_file():
+            return {}
+        try:
+            data = json.loads(path.read_text(encoding="utf-8"))
+            return data if isinstance(data, dict) else {}
+        except Exception:
+            return {}
+
+    def _has_tool_license_acceptance(self, key: str) -> bool:
+        normalized = str(key or "").strip()
+        if not normalized:
+            return True
+        return normalized in self._load_tool_license_acceptances()
+
+    def _record_tool_license_acceptance(
+        self,
+        key: str,
+        *,
+        tool_id: str,
+        plugin_id: str,
+    ) -> None:
+        normalized = str(key or "").strip()
+        if not normalized:
+            return
+        path = self._tool_license_acceptance_path()
+        path.parent.mkdir(parents=True, exist_ok=True)
+        data = self._load_tool_license_acceptances()
+        data[normalized] = {
+            "tool_id": str(tool_id),
+            "plugin_id": str(plugin_id),
+            "accepted_at": datetime.now(timezone.utc).isoformat(),
+        }
+        path.write_text(
+            json.dumps(data, ensure_ascii=False, indent=2) + "\n",
+            encoding="utf-8",
+        )
+
+    def _confirm_tool_license(
+        self,
+        *,
+        tool_id: str,
+        plugin: PluginInfo,
+        config: dict,
+    ) -> bool:
+        acceptance = config.get("license_acceptance") or {}
+        if not isinstance(acceptance, dict):
+            return True
+
+        key = str(acceptance.get("key") or "").strip()
+        if self._has_tool_license_acceptance(key):
+            return True
+
+        try:
+            from PySide6.QtWidgets import QApplication, QMessageBox
+        except Exception:
+            return False
+
+        if QApplication.instance() is None:
+            return False
+
+        box = QMessageBox()
+        box.setIcon(QMessageBox.Icon.Information)
+        box.setWindowTitle(
+            str(acceptance.get("title") or "Lizenzhinweis")
+        )
+        box.setText(
+            str(
+                acceptance.get("text")
+                or f"{tool_id} benötigt eine Lizenzbestätigung."
+            )
+        )
+        box.setInformativeText(
+            str(acceptance.get("details") or "")
+        )
+        box.setStandardButtons(
+            QMessageBox.StandardButton.Yes
+            | QMessageBox.StandardButton.Cancel
+        )
+        yes_button = box.button(QMessageBox.StandardButton.Yes)
+        cancel_button = box.button(QMessageBox.StandardButton.Cancel)
+        if yes_button is not None:
+            yes_button.setText(
+                str(
+                    acceptance.get("accept_button")
+                    or "Ja, installieren"
+                )
+            )
+        if cancel_button is not None:
+            cancel_button.setText(
+                str(acceptance.get("cancel_button") or "Abbrechen")
+            )
+        box.setDefaultButton(QMessageBox.StandardButton.Cancel)
+
+        accepted = (
+            box.exec() == QMessageBox.StandardButton.Yes
+        )
+        if accepted:
+            self._record_tool_license_acceptance(
+                key,
+                tool_id=tool_id,
+                plugin_id=plugin.plugin_id,
+            )
+        return accepted
+
     def _install_declared_tools_after_plugin_install(
         self,
         plugin: PluginInfo,
         manifest_data: dict,
+        installed_plugin_dir: Path,
     ) -> list[str]:
         """Installiert ausdrücklich freigegebene Plugin-Tools sichtbar mit.
 
@@ -184,7 +295,15 @@ class PluginLoader:
             *(("optional", tool_id) for tool_id in optional_tools),
         ]
 
+        tool_setup = manifest_data.get("tool_setup") or {}
+        if not isinstance(tool_setup, dict):
+            tool_setup = {}
+
         for importance, tool_id in declared:
+            setup_config = tool_setup.get(tool_id) or {}
+            if not isinstance(setup_config, dict):
+                setup_config = {}
+
             status = tool_service.find_tool_status(
                 tool_id,
                 include_version=False,
@@ -199,13 +318,30 @@ class PluginLoader:
             display_name = str(
                 status.get("display_name") or tool_id
             )
-            if bool(status.get("installed")):
+            already_installed = bool(status.get("installed"))
+
+            if not self._confirm_tool_license(
+                tool_id=tool_id,
+                plugin=plugin,
+                config=setup_config,
+            ):
+                message = (
+                    f"{display_name} wurde nicht installiert, weil der "
+                    "Lizenzhinweis nicht bestätigt wurde."
+                )
+                if importance == "required":
+                    raise RuntimeError(message)
+                messages.append(f"WARNUNG: {message}")
+                continue
+
+            if already_installed:
                 messages.append(
                     f"Tool bereits vorhanden: {display_name}"
                 )
-                continue
 
-            if not bool(status.get("can_install")):
+            if already_installed:
+                installed = status
+            elif not bool(status.get("can_install")):
                 message = (
                     f"Für {display_name} ist keine automatische "
                     "portable Installation verfügbar."
@@ -215,11 +351,34 @@ class PluginLoader:
                 messages.append(f"WARNUNG: {message}")
                 continue
 
-            messages.append(
-                f"Tool wird portabel eingerichtet: {display_name}"
-            )
+            if not already_installed:
+                messages.append(
+                    f"Tool wird portabel eingerichtet: {display_name}"
+                )
             try:
-                installed = tool_service.install_plugin_tool(tool_id)
+                if not already_installed:
+                    installed = tool_service.install_plugin_tool(tool_id)
+
+                defaults_dir = str(
+                    setup_config.get("defaults_dir") or ""
+                ).strip()
+                if defaults_dir:
+                    copied = tool_service.apply_plugin_tool_defaults(
+                        tool_id,
+                        installed_plugin_dir / defaults_dir,
+                        overwrite=bool(
+                            setup_config.get(
+                                "overwrite_defaults_on_fresh_install",
+                                True,
+                            )
+                            and not already_installed
+                        ),
+                    )
+                    if copied:
+                        messages.append(
+                            f"MediaHub-Konfiguration übernommen: "
+                            f"{len(copied)} Datei(en)"
+                        )
             except Exception as error:
                 message = (
                     f"{display_name} konnte nicht eingerichtet werden: "
@@ -232,7 +391,11 @@ class PluginLoader:
 
             path = installed.get("path")
             messages.append(
-                f"Tool eingerichtet: {display_name}"
+                (
+                    f"Tool einsatzbereit: {display_name}"
+                    if already_installed
+                    else f"Tool eingerichtet: {display_name}"
+                )
                 + (f" ({path})" if path else "")
             )
 
@@ -292,6 +455,7 @@ class PluginLoader:
                     self._install_declared_tools_after_plugin_install(
                         plugin,
                         manifest_data,
+                        target_dir,
                     )
                 )
             except Exception:

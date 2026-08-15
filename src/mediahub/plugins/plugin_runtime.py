@@ -50,6 +50,22 @@ class PluginRuntime:
             if module_name == runtime_name or module_name.startswith(prefix):
                 sys.modules.pop(module_name, None)
 
+    def _register_instance_capabilities(self, plugin: PluginInfo, instance: Any) -> None:
+        getter = getattr(instance, "get_runtime_capabilities", None)
+        if not callable(getter):
+            return
+        declared = getter() or {}
+        if not isinstance(declared, dict):
+            raise TypeError("get_runtime_capabilities() muss ein dict liefern.")
+        for capability, provider in declared.items():
+            if provider is None:
+                continue
+            self.mediahub_api.register_capability(
+                str(capability),
+                provider,
+                owner_id=plugin.plugin_id,
+            )
+
     def is_running(self, plugin_id: str) -> bool:
         return str(plugin_id) in self._running
 
@@ -119,6 +135,7 @@ class PluginRuntime:
                 return False, "Das Plugin besitzt keine start()-Methode."
 
             start_method()
+            self._register_instance_capabilities(plugin, instance)
 
             self._running[plugin.plugin_id] = RunningPlugin(
                 info=plugin,
@@ -129,6 +146,7 @@ class PluginRuntime:
             return True, f"Plugin gestartet: {plugin.name}"
 
         except Exception as error:
+            self.mediahub_api.unregister_plugin_capabilities(plugin.plugin_id)
             sys.modules.pop(module_name, None)
             return False, f"Plugin konnte nicht gestartet werden:\n{error}"
 
@@ -177,6 +195,7 @@ class PluginRuntime:
             if callable(stop_method):
                 stop_method()
 
+            self.mediahub_api.unregister_plugin_capabilities(plugin_id)
             self._running.pop(plugin_id, None)
             sys.modules.pop(running.module.__name__, None)
 

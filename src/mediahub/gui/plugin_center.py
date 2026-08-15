@@ -30,6 +30,54 @@ class PluginCenter(QWidget):
         self._last_gui_signature = ()
         self._build_ui()
         self.refresh()
+        self._autostart_enabled_plugins()
+        self.refresh()
+
+    @staticmethod
+    def _plugin_autostart_enabled(plugin) -> bool:
+        """Aktivierte Runtime-Plugins starten standardmäßig im Hintergrund.
+
+        Ein Plugin kann den automatischen Start im Manifest ausdrücklich mit
+        ``"autostart": false`` deaktivieren. Das Öffnen einer Plugin-GUI ist
+        davon unabhängig.
+        """
+        if not plugin.enabled or not plugin.entry:
+            return False
+
+        manifest = plugin.path / "plugin.json"
+        try:
+            data = json.loads(manifest.read_text(encoding="utf-8"))
+        except (OSError, json.JSONDecodeError):
+            data = {}
+
+        return data.get("autostart", True) is not False
+
+    def _autostart_enabled_plugins(self) -> dict[str, str]:
+        """Startet aktivierte Plugins ohne deren GUI zu öffnen."""
+        result: dict[str, str] = {}
+        if self.runtime is None:
+            return result
+
+        for plugin in self.plugins:
+            if not self._plugin_autostart_enabled(plugin):
+                continue
+            if self.runtime.is_running(plugin.plugin_id):
+                result[plugin.plugin_id] = "already_running"
+                continue
+
+            ok, message = self.runtime.start(plugin)
+            result[plugin.plugin_id] = "started" if ok else "failed"
+
+            if not ok:
+                try:
+                    self.runtime.mediahub_api.log(
+                        f"Autostart fehlgeschlagen: {plugin.name}: {message}",
+                        level="warning",
+                    )
+                except Exception:
+                    pass
+
+        return result
 
     def _build_ui(self):
         layout = QVBoxLayout(self)
@@ -170,6 +218,23 @@ class PluginCenter(QWidget):
             data["enabled"] = bool(enabled)
             manifest.write_text(json.dumps(data, indent=2, ensure_ascii=False) + "\n", encoding="utf-8")
             self.refresh()
+
+            if enabled:
+                updated = self.get_plugin(plugin.plugin_id)
+                if (
+                    updated is not None
+                    and self.runtime is not None
+                    and self._plugin_autostart_enabled(updated)
+                    and not self.runtime.is_running(updated.plugin_id)
+                ):
+                    ok, start_message = self.runtime.start(updated)
+                    self.refresh()
+                    if not ok:
+                        return False, (
+                            f"Plugin aktiviert, aber Autostart fehlgeschlagen: "
+                            f"{start_message}"
+                        )
+
             return True, f"Plugin {'aktiviert' if enabled else 'deaktiviert'}: {plugin.name}"
         except Exception as error:
             return False, f"Pluginstatus konnte nicht gespeichert werden: {error}"
