@@ -1,0 +1,20 @@
+MediaHub - Proprietary License Notice
+
+Copyright (c) 2026 Master0701. All rights reserved.
+
+The first-party MediaHub source code and compiled distributions are proprietary
+software unless a specific component explicitly states a different license.
+
+No permission is granted to copy, modify, redistribute, sublicense, sell, or
+publish the first-party source code or compiled distributions except with
+explicit permission from the rights holder.
+
+Third-party software, libraries, tools, plugins, trademarks, operating-system
+packages, and external components remain subject to their own licenses and
+terms. Those licenses are not replaced or restricted by this notice.
+
+See THIRD_PARTY_LICENSES.md, THIRD_PARTY_NOTICES.md and the licenses/ directory
+for declared third-party components.
+
+Separately packaged MediaHub plugins may declare their own license in their
+plugin manifest.

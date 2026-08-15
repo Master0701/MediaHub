@@ -129,6 +129,7 @@ def verify_release_files(version: str) -> None:
 
 def verify_license_files() -> None:
     required = [
+        ROOT / "LICENSE",
         ROOT / "THIRD_PARTY_NOTICES.md",
         ROOT / "THIRD_PARTY_LICENSES.md",
         ROOT / "licenses" / "Apache-2.0.txt",
