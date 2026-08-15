@@ -1,29 +1,47 @@
-MediaHub – Proprietäre Lizenz
+# MediaHub - Lizenz
 
-Copyright (c) 2026 Master0701. Alle Rechte vorbehalten.
+> **Privat entwickeltes Softwareprojekt**
+>
+> Copyright (c) 2026 Master0701 - Alle Rechte vorbehalten.
 
-MediaHub ist ein privat entwickeltes Softwareprojekt.
+---
 
-Der von Master0701 selbst entwickelte MediaHub-Quellcode und daraus erzeugte
-Programmdateien sind proprietär. Ohne ausdrückliche Genehmigung des
-Rechteinhabers ist es nicht gestattet, den eigenen MediaHub-Quellcode oder
-daraus erzeugte Programmpakete zu kopieren, zu verändern, weiterzuverbreiten,
-unterzulizenzieren, zu verkaufen oder als eigenes Projekt zu veröffentlichen.
+## Eigene MediaHub-Bestandteile
 
-Diese Regelung gilt ausschließlich für die selbst entwickelten Bestandteile
-von MediaHub.
+| Bereich | Regelung |
+|---|---|
+| **Projekt** | MediaHub |
+| **Entwicklung** | Privat entwickelt |
+| **Rechteinhaber** | Master0701 |
+| **Lizenzmodell** | Proprietär |
+| **Quellcode** | Alle Rechte vorbehalten |
+| **Programmdateien** | Alle Rechte vorbehalten |
 
-Drittanbieter-Software, Bibliotheken, Werkzeuge, Marken und externe Komponenten
-behalten vollständig ihre jeweiligen eigenen Lizenzen und Rechte. Die
-MediaHub-Lizenz verändert oder ersetzt diese Fremdlizenzen nicht.
+Der von **Master0701 selbst entwickelte MediaHub-Quellcode** und die daraus
+erzeugten Programmdateien sind proprietär.
+
+Ohne ausdrückliche Genehmigung des Rechteinhabers ist es nicht gestattet,
+die selbst entwickelten MediaHub-Bestandteile zu kopieren, zu verändern,
+weiterzuverbreiten, unterzulizenzieren, zu verkaufen oder als eigenes
+Projekt zu veröffentlichen.
+
+Diese Regelung gilt **ausschließlich für die selbst entwickelten
+Bestandteile von MediaHub**.
+
+---
+
+## Drittanbieter-Komponenten
+
+Drittanbieter-Software, Bibliotheken, Werkzeuge, Marken und externe
+Komponenten behalten vollständig ihre jeweiligen eigenen Lizenzen und Rechte.
+
+Die MediaHub-Lizenz **verändert, ersetzt oder beschränkt diese
+Fremdlizenzen nicht**.
 
 Separat veröffentlichte MediaHub-Plugins können zusätzlich ihre jeweils im
 Plugin angegebenen Lizenzbedingungen besitzen.
 
-
-======================================================================
-Drittanbieter-Software und Lizenzen
-======================================================================
+---
 
 # Drittanbieter-Lizenzen
 
