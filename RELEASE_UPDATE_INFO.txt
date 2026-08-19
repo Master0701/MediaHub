@@ -1,27 +1,27 @@
-﻿MediaHub v1.0.19 Release-Update
+MediaHub v1.0.19 Release-Update
 
-?nderungen:
+Änderungen:
 
 Plugin-Store
 - Download-Logik des MediaHub Plugin-Stores korrigiert.
-- Plugin-Pakete werden ?ber das gemeinsame MediaHub_Plugins-Release geladen.
-- Release-Assets werden unabh?ngig von der jeweiligen Plugin-Version ?ber den korrekten gemeinsamen Release-Tag aufgel?st.
+- Plugin-Pakete werden über das gemeinsame MediaHub_Plugins-Release geladen.
+- Release-Assets werden unabhängig von der jeweiligen Plugin-Version über den korrekten gemeinsamen Release-Tag aufgelöst.
 - HTTP-404-Fehler beim automatischen Download aktueller Plugins behoben.
 
 Film- und Serienmetadaten
-- Gemeinsame Metadaten-Unterst?tzung f?r Filme und Serien im MediaHub-Hauptprogramm erweitert.
-- Datenbankschema um zus?tzliche strukturierte Medienfelder erweitert.
-- Repository-Unterst?tzung f?r die neuen Film- und Serienfelder erg?nzt.
-- Zentrale Metadaten-Schreibschnittstelle f?r Plugins erweitert.
-- Regressionstests f?r das neue Metadaten-Schema erg?nzt.
+- Gemeinsame Metadaten-Unterstützung für Filme und Serien im MediaHub-Hauptprogramm erweitert.
+- Datenbankschema um zusätzliche strukturierte Medienfelder erweitert.
+- Repository-Unterstützung für die neuen Film- und Serienfelder ergänzt.
+- Zentrale Metadaten-Schreibschnittstelle für Plugins erweitert.
+- Regressionstests für das neue Metadaten-Schema ergänzt.
 
 Plugin- und Tool-Infrastruktur
-- Plugin-API um ben?tigte Metadaten-Schreibrechte erweitert.
-- Tool-Zugriff und Tool-Status f?r Plugins erweitert.
+- Plugin-API um benötigte Metadaten-Schreibrechte erweitert.
+- Tool-Zugriff und Tool-Status für Plugins erweitert.
 - Lokale Plugin-Laufzeitdaten werden nicht mehr vom Git-Repository erfasst.
 
 Datenbank
-- SQLite-Verbindungen werden nach der Verwendung zuverl?ssig geschlossen.
+- SQLite-Verbindungen werden nach der Verwendung zuverlässig geschlossen.
 
 Release
 - MediaHub-Version auf 1.0.19 aktualisiert.

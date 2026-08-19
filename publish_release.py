@@ -299,7 +299,34 @@ def main() -> int:
 
     if not PENDING_RELEASE_NOTES.exists():
         raise SystemExit("RELEASE_NOTES_PENDING.md fehlt. Das Release wurde nicht gestartet.")
-    release_notes = PENDING_RELEASE_NOTES.read_text(encoding="utf-8").strip()
+    release_notes = PENDING_RELEASE_NOTES.read_text(
+        encoding="utf-8"
+    ).strip()
+
+    # Detect replacement question marks caused by broken character
+    # encoding before anything is committed, tagged or published.
+    #
+    # Examples:
+    #   Unterst?tzung
+    #   f?r
+    #   ?nderungen
+    import re
+
+    broken_encoding = re.findall(
+        r"(?:[A-Za-z]+\?[A-Za-z]+|\?[A-Za-z]{2,})",
+        release_notes,
+    )
+
+    if broken_encoding:
+        examples = ", ".join(
+            sorted(set(broken_encoding))[:10]
+        )
+        raise SystemExit(
+            "RELEASE_NOTES_PENDING.md contains suspicious "
+            "replacement question marks. Release aborted. "
+            f"Examples: {examples}"
+        )
+
     if not release_notes:
         raise SystemExit("RELEASE_NOTES_PENDING.md ist leer. Das Release wurde nicht gestartet.")
 
