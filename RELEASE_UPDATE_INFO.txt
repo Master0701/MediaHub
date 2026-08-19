@@ -1,19 +1,27 @@
-MediaHub v1.0.1 Release-Update
+﻿MediaHub v1.0.19 Release-Update
 
-Diese ZIP direkt in den MediaHub-Hauptordner entpacken und vorhandene Dateien ersetzen.
+?nderungen:
 
-Enthalten:
-- CHANGELOG.md
-- README.md
-- version_info.txt
-- MediaHub.spec
-- main.py
-- build_docs.py
-- build_release.py
-- installer/installer.iss
-- src/mediahub/gui/main_window.py
+Plugin-Store
+- Download-Logik des MediaHub Plugin-Stores korrigiert.
+- Plugin-Pakete werden ?ber das gemeinsame MediaHub_Plugins-Release geladen.
+- Release-Assets werden unabh?ngig von der jeweiligen Plugin-Version ?ber den korrekten gemeinsamen Release-Tag aufgel?st.
+- HTTP-404-Fehler beim automatischen Download aktueller Plugins behoben.
 
-Wichtig:
-Die Namen MediaHub_Portable.zip, MediaHub_Setup.zip und MediaHub_Handbuecher.zip
-in build_release.py bleiben absichtlich unverändert. Der GitHub-Release-Workflow
-benennt sie anschließend mit dem Tag v1.0.1 um.
+Film- und Serienmetadaten
+- Gemeinsame Metadaten-Unterst?tzung f?r Filme und Serien im MediaHub-Hauptprogramm erweitert.
+- Datenbankschema um zus?tzliche strukturierte Medienfelder erweitert.
+- Repository-Unterst?tzung f?r die neuen Film- und Serienfelder erg?nzt.
+- Zentrale Metadaten-Schreibschnittstelle f?r Plugins erweitert.
+- Regressionstests f?r das neue Metadaten-Schema erg?nzt.
+
+Plugin- und Tool-Infrastruktur
+- Plugin-API um ben?tigte Metadaten-Schreibrechte erweitert.
+- Tool-Zugriff und Tool-Status f?r Plugins erweitert.
+- Lokale Plugin-Laufzeitdaten werden nicht mehr vom Git-Repository erfasst.
+
+Datenbank
+- SQLite-Verbindungen werden nach der Verwendung zuverl?ssig geschlossen.
+
+Release
+- MediaHub-Version auf 1.0.19 aktualisiert.
