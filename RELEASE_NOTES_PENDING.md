@@ -1,11 +1,5 @@
 # MediaHub v1.0.19
 
-MediaHub ist ein lokales PySide6-Programm zum Verwalten von YouTube-Kanälen, Playlists, Video-Downloads, Plex-Importen und separat installierbaren Erweiterungen.
-
-## Neu und verbessert in v1.0.19
-
-# MediaHub v1.0.19
-
 ## Plugin-Store
 
 - Download-Logik des MediaHub Plugin-Stores korrigiert.
@@ -41,12 +35,3 @@ MediaHub ist ein lokales PySide6-Programm zum Verwalten von YouTube-Kanälen, Pl
 - Metadaten-Schema-Regressionstests erfolgreich.
 - Plugin-Downloader-Live-Test mit HTTP 200 erfolgreich.
 - MediaHub-Arbeitsbaum vor der Release-Vorbereitung sauber.
-
-Die vollständige Versionshistorie steht in [`CHANGELOG.md`](CHANGELOG.md).
-
-## Start aus dem Quellcode
-
-```powershell
-python -m pip install -r requirements.txt
-python main.py
-```
