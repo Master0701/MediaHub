@@ -259,8 +259,17 @@ class MainWindow(QMainWindow):
         self.addToolBar(toolbar)
 
     def _queue_plugin_action(self, action: str, payload: dict | None = None) -> dict:
-        """Stellt eine Plugin-Aktion threadsicher in den Qt-Hauptthread."""
-        self.plugin_action_requested.emit(str(action), dict(payload or {}))
+        """Stellt Plugin-Aktionen kontrolliert zur Ausfuehrung bereit."""
+        action = str(action or "").strip()
+        data = dict(payload or {})
+
+        # metadata.update ist eine reine Repository-Aktion.
+        # Der Aufrufer benoetigt das echte Ergebnis synchron fuer
+        # Recovery und anschliessende Ruecklesekontrolle.
+        if action == "metadata.update":
+            return self._plugin_action_update_metadata(data)
+
+        self.plugin_action_requested.emit(action, data)
         return {
             "ok": True,
             "accepted": True,
@@ -288,8 +297,154 @@ class MainWindow(QMainWindow):
             "jobs.run_next": lambda data: self.run_next_job(),
             "scheduler.check": lambda data: self.check_scheduler_now(),
             "scheduler.toggle": lambda data: self.toggle_scheduler_automatic(),
+            "metadata.update": self._plugin_action_update_metadata,
         }
 
+
+    def _plugin_action_update_metadata(self, data: dict) -> dict:
+        """Schreibt bestaetigte Metadata-Editor-Aenderungen zentral."""
+
+        confirmation = dict(data.get("confirmation") or {})
+        if confirmation.get("confirmed") is not True:
+            return {
+                "ok": False,
+                "accepted": False,
+                "confirmation_required": True,
+                "message": "Metadaten-Schreibzugriff wurde nicht bestaetigt.",
+            }
+
+        if self.repository is None:
+            return {
+                "ok": False,
+                "accepted": False,
+                "message": "MediaHub-Repository ist nicht verfuegbar.",
+            }
+
+        updater = getattr(self.repository, "update_video_metadata", None)
+        if not callable(updater):
+            return {
+                "ok": False,
+                "accepted": False,
+                "message": "Metadata-Update wird vom Repository nicht unterstuetzt.",
+            }
+
+        metadata = dict(data.get("metadata") or {})
+        before = dict(data.get("backup") or {})
+
+        item_id = str(
+            data.get("id")
+            or metadata.get("video_id")
+            or metadata.get("id")
+            or ""
+        ).strip()
+
+        if not item_id:
+            return {
+                "ok": False,
+                "accepted": False,
+                "message": "Kein Medieneintrag fuer das Metadata-Update angegeben.",
+            }
+
+        field_map = {
+            "media_type": "media_type",
+            "title": "title",
+            "description": "description",
+            "year": "year",
+            "series": "series",
+            "season": "season",
+            "episode": "episode",
+            "episode_title": "episode_title",
+            "published_at": "upload_date",
+            "upload_date": "upload_date",
+            "thumbnail_url": "thumbnail_url",
+            "duration": "duration",
+            "view_count": "view_count",
+        }
+
+        unsupported_editor_fields = {
+            "channel",
+            "playlist",
+        }
+
+        unsupported_changes = sorted(
+            field
+            for field in unsupported_editor_fields
+            if field in metadata
+            and str(metadata.get(field) or "").strip()
+            != str(before.get(field) or "").strip()
+        )
+
+        if unsupported_changes:
+            return {
+                "ok": False,
+                "accepted": False,
+                "unsupported_fields": unsupported_changes,
+                "message": (
+                    "Diese Metadatenfelder koennen in der aktuellen "
+                    "MediaHub-Datenbank noch nicht gespeichert werden: "
+                    + ", ".join(unsupported_changes)
+                ),
+            }
+
+        changes = {}
+
+        for source_field, target_field in field_map.items():
+            if source_field not in metadata:
+                continue
+
+            new_value = metadata.get(source_field)
+            old_value = before.get(source_field)
+
+            # published_at entspricht im MediaHub-Kern upload_date.
+            if source_field == "published_at" and source_field not in before:
+                old_value = before.get("upload_date")
+
+            if str(new_value or "").strip() == str(old_value or "").strip():
+                continue
+
+            changes[target_field] = new_value
+
+        if not changes:
+            return {
+                "ok": False,
+                "accepted": False,
+                "message": "Keine unterstuetzten Metadaten wurden geaendert.",
+            }
+
+        result = updater(item_id, changes)
+
+        if not isinstance(result, dict):
+            result = {
+                "ok": bool(result),
+                "message": "Metadata-Update ausgefuehrt.",
+            }
+        else:
+            result = dict(result)
+
+        result["accepted"] = bool(result.get("ok"))
+
+        if result.get("ok"):
+            if self.library_manager is not None:
+                refresh = getattr(
+                    self.library_manager,
+                    "schedule_refresh",
+                    None,
+                )
+                if callable(refresh):
+                    try:
+                        refresh()
+                    except Exception:
+                        pass
+
+            if self.log_panel is not None:
+                try:
+                    self.log_panel.write(
+                        "Metadata Editor: Metadaten aktualisiert."
+                    )
+                except Exception:
+                    pass
+
+        return result
 
     def _plugin_result(self, result):
         ok, message = result
@@ -563,6 +718,7 @@ class MainWindow(QMainWindow):
                 if self.plugin_center is not None
                 else []
             ),
+            tool_service=self.tool_service,
         )
         self.plugin_center = PluginCenter(
             base_dir=self.base_dir,

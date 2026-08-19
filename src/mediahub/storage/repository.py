@@ -421,6 +421,125 @@ class MediaRepository:
 
         return result
 
+    def update_video_metadata(
+        self,
+        video_id: str,
+        changes: dict,
+    ) -> dict:
+        """Aktualisiert freigegebene Metadaten eines vorhandenen Videos."""
+
+        video_id = str(video_id or "").strip()
+        if not video_id:
+            return {
+                "ok": False,
+                "message": "Keine Video-ID angegeben.",
+            }
+
+        allowed_fields = {
+            "media_type",
+            "title",
+            "description",
+            "year",
+            "series",
+            "season",
+            "episode",
+            "episode_title",
+            "thumbnail_url",
+            "upload_date",
+            "duration",
+            "view_count",
+        }
+
+        clean_changes = {
+            str(key): value
+            for key, value in dict(changes or {}).items()
+            if str(key) in allowed_fields
+        }
+
+        if not clean_changes:
+            return {
+                "ok": False,
+                "message": "Keine unterst?tzten Metadaten?nderungen angegeben.",
+            }
+
+        with self.database.connect() as connection:
+            existing = connection.execute(
+                """
+                SELECT *
+                FROM videos
+                WHERE video_id = ?
+                   OR CAST(id AS TEXT) = ?
+                LIMIT 1
+                """,
+                (video_id, video_id),
+            ).fetchone()
+
+            if existing is None:
+                return {
+                    "ok": False,
+                    "message": f"Video nicht gefunden: {video_id}",
+                }
+
+            before = dict(existing)
+            stored_video_id = str(existing["video_id"] or "").strip()
+
+            assignments = []
+            values = []
+
+            for field, value in clean_changes.items():
+                assignments.append(f"{field} = ?")
+
+                if field in {
+                    "year",
+                    "season",
+                    "episode",
+                    "duration",
+                    "view_count",
+                }:
+                    values.append(self._safe_int(value))
+                else:
+                    values.append(str(value or ""))
+
+            values.append(stored_video_id)
+
+            connection.execute(
+                f"""
+                UPDATE videos
+                SET {", ".join(assignments)}
+                WHERE video_id = ?
+                """,
+                tuple(values),
+            )
+
+            connection.commit()
+
+            updated = connection.execute(
+                """
+                SELECT *
+                FROM videos
+                WHERE video_id = ?
+                LIMIT 1
+                """,
+                (stored_video_id,),
+            ).fetchone()
+
+        after = dict(updated) if updated is not None else {}
+
+        return {
+            "ok": True,
+            "video_id": stored_video_id,
+            "changed_fields": sorted(clean_changes),
+            "before": {
+                key: before.get(key)
+                for key in clean_changes
+            },
+            "after": {
+                key: after.get(key)
+                for key in clean_changes
+            },
+            "message": "Metadaten wurden in MediaHub aktualisiert.",
+        }
+
     def mark_video_downloaded(
         self,
         video_id: str,

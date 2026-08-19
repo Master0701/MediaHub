@@ -3,6 +3,16 @@ from pathlib import Path
 from typing import Iterable, Optional
 
 
+class _ClosingConnection(sqlite3.Connection):
+    """SQLite-Verbindung, die nach einem with-Block sicher geschlossen wird."""
+
+    def __exit__(self, exc_type, exc_value, traceback):
+        try:
+            return super().__exit__(exc_type, exc_value, traceback)
+        finally:
+            self.close()
+
+
 class Database:
     """Kleine SQLite-Hilfsklasse für die spätere MediaHub-Datenbank.
 
@@ -15,7 +25,10 @@ class Database:
         self.path.parent.mkdir(parents=True, exist_ok=True)
 
     def connect(self) -> sqlite3.Connection:
-        connection = sqlite3.connect(self.path)
+        connection = sqlite3.connect(
+            self.path,
+            factory=_ClosingConnection,
+        )
         connection.row_factory = sqlite3.Row
         connection.execute("PRAGMA foreign_keys = ON")
         return connection

@@ -180,3 +180,6 @@ plugins/*
 # Laufzeit-Tools werden vom MediaHub-Tool-Manager geladen
 tools/*
 !tools/.gitignore
+
+# Lokale Plugin-Laufzeitdaten
+plugin_data/

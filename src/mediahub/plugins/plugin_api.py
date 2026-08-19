@@ -64,8 +64,9 @@ class MediaHubPluginAPI:
         "jobs.run_next": {"provider_action": "jobs.run_next", "permission": "actions.jobs.control"},
         "scheduler.check": {"provider_action": "scheduler.check", "permission": "actions.scheduler.control"},
         "scheduler.toggle": {"provider_action": "scheduler.toggle", "permission": "actions.scheduler.control"},
+        "metadata.update": {"provider_action": "metadata.update", "permission": "actions.metadata.write"},
     }
-    def __init__(self, *, base_dir: Path, app_version: str, repository: Any = None, controller: Any = None, logger: Any = None, status_provider: Callable[[], dict] | None = None, download_status_provider: Callable[[], dict] | None = None, action_provider: Callable[[str, dict], dict] | None = None, wizard_provider: Any = None, wizard_selection_provider: Callable[[], dict] | None = None, plugin_provider: Callable[[], list[dict]] | None = None):
+    def __init__(self, *, base_dir: Path, app_version: str, repository: Any = None, controller: Any = None, logger: Any = None, status_provider: Callable[[], dict] | None = None, download_status_provider: Callable[[], dict] | None = None, action_provider: Callable[[str, dict], dict] | None = None, wizard_provider: Any = None, wizard_selection_provider: Callable[[], dict] | None = None, plugin_provider: Callable[[], list[dict]] | None = None, tool_service: Any = None):
         self.base_dir = Path(base_dir)
         self.app_version = str(app_version)
         self._repository = repository
@@ -77,8 +78,59 @@ class MediaHubPluginAPI:
         self._wizard_provider = wizard_provider
         self._wizard_selection_provider = wizard_selection_provider
         self._plugin_provider = plugin_provider
+        self._tool_service = tool_service
         self._capability_registry = CapabilityRegistry()
 
+
+    def get_tool_path(self, tool_id: str) -> str:
+        """Liefert den von MediaHub verwalteten Pfad eines installierten Tools."""
+        normalized = str(tool_id or "").strip().lower()
+        if not normalized or self._tool_service is None:
+            return ""
+
+        try:
+            path = Path(self._tool_service.tool_path(normalized))
+        except (KeyError, TypeError, ValueError):
+            return ""
+
+        return str(path) if path.is_file() else ""
+
+    def get_tool_status(self, tool_id: str) -> dict:
+        """Liefert einen eingeschr?nkten Tool-Status f?r Plugins."""
+        normalized = str(tool_id or "").strip().lower()
+
+        if not normalized or self._tool_service is None:
+            return {
+                "tool_id": normalized,
+                "installed": False,
+                "path": "",
+            }
+
+        try:
+            status = dict(
+                self._tool_service.get_tool_status(
+                    normalized,
+                    include_version=False,
+                )
+                or {}
+            )
+        except (KeyError, TypeError, ValueError):
+            return {
+                "tool_id": normalized,
+                "installed": False,
+                "path": "",
+            }
+
+        path = self.get_tool_path(normalized)
+
+        return {
+            "tool_id": normalized,
+            "display_name": str(
+                status.get("display_name") or normalized
+            ),
+            "installed": bool(path),
+            "path": path,
+        }
 
     def register_capability(self, capability: str, provider: Any, *, owner_id: str) -> None:
         self._capability_registry.register(capability, provider, owner_id=owner_id)

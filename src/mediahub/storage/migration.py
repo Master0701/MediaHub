@@ -102,6 +102,12 @@ class MigrationManager:
                 """
             )
             # Spalten aus älteren Alpha-Ständen vorsichtig nachziehen.
+            self._ensure_column(connection, "videos", "media_type", "TEXT NOT NULL DEFAULT 'video'")
+            self._ensure_column(connection, "videos", "year", "INTEGER NOT NULL DEFAULT 0")
+            self._ensure_column(connection, "videos", "series", "TEXT NOT NULL DEFAULT ''")
+            self._ensure_column(connection, "videos", "season", "INTEGER NOT NULL DEFAULT 0")
+            self._ensure_column(connection, "videos", "episode", "INTEGER NOT NULL DEFAULT 0")
+            self._ensure_column(connection, "videos", "episode_title", "TEXT NOT NULL DEFAULT ''")
             self._ensure_column(connection, "videos", "description", "TEXT NOT NULL DEFAULT ''")
             self._ensure_column(connection, "videos", "thumbnail_url", "TEXT NOT NULL DEFAULT ''")
             self._ensure_column(connection, "videos", "view_count", "INTEGER NOT NULL DEFAULT 0")
