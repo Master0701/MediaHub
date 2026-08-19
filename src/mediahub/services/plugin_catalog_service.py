@@ -122,10 +122,19 @@ class PluginCatalogService:
                 "Für dieses Plugin ist kein Release-Paket hinterlegt."
             )
 
+        # Alle MediaHub-Plugins werden gemeinsam in einem
+        # Repository-Release ver?ffentlicht. Die Plugin-Version
+        # ist daher NICHT identisch mit dem GitHub-Release-Tag.
+        #
+        # Beispiel:
+        #   Plugin:  Metadata Editor v0.4.4
+        #   Release: MediaHub Plugins v0.5.12
+        #
+        # Deshalb immer die Assets des neuesten gemeinsamen
+        # Plugin-Releases verwenden.
         base = (
             "https://github.com/"
-            f"{GITHUB_REPOSITORY}/releases/download/"
-            f"v{plugin.version}"
+            f"{GITHUB_REPOSITORY}/releases/latest/download"
         )
         package_name = plugin.release_asset.format(
             version=plugin.version
