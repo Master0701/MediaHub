@@ -57,6 +57,57 @@ jobs:
             release/RELEASE_NOTES.md
           if-no-files-found: error
 
+      - name: Validate release notes UTF-8
+        shell: pwsh
+        run: |
+          $env:PYTHONUTF8 = "1"
+          $env:PYTHONIOENCODING = "utf-8"
+
+          @'
+          from pathlib import Path
+          import re
+
+          path = Path("release/RELEASE_NOTES.md")
+
+          if not path.is_file():
+              raise SystemExit(
+                  "FEHLER: release/RELEASE_NOTES.md fehlt."
+              )
+
+          raw = path.read_bytes()
+
+          try:
+              text = raw.decode("utf-8")
+          except UnicodeDecodeError as exc:
+              raise SystemExit(
+                  f"FEHLER: RELEASE_NOTES.md ist kein gueltiges UTF-8: {exc}"
+              )
+
+          if not text.strip():
+              raise SystemExit(
+                  "FEHLER: RELEASE_NOTES.md ist leer."
+              )
+
+          broken = re.findall(
+              r"(?:[A-Za-z]+\?[A-Za-z]+|\?[A-Za-z]{2,})",
+              text,
+          )
+
+          if broken:
+              examples = ", ".join(
+                  sorted(set(broken))[:10]
+              )
+              raise SystemExit(
+                  "FEHLER: RELEASE_NOTES.md enthaelt vermutlich "
+                  "beschaedigte Sonderzeichen: "
+                  + examples
+              )
+
+          print("OK: RELEASE_NOTES.md ist gueltiges UTF-8.")
+          print("Bytes:", len(raw))
+          print("Verdaechtige Treffer:", len(broken))
+          '@ | python -
+
       - name: Create GitHub Release
         uses: softprops/action-gh-release@v3
         with:
