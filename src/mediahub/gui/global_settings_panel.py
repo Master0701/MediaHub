@@ -21,6 +21,11 @@ from PySide6.QtWidgets import (
 )
 
 from src.mediahub.services.ai_node_service import AINodeService
+from src.mediahub.services.compute_node_service import (
+    ComputeNodeClient,
+    ComputeNodeConfig,
+    ComputeNodeConnectionError,
+)
 from src.mediahub.services.ai_node_provisioning_service import (
     AINodeInstallationState,
     AINodeProvisioningError,
@@ -286,6 +291,116 @@ class GlobalSettingsPanel(QWidget):
         note.setWordWrap(True)
         layout.addRow("", note)
 
+        compute_group = QGroupBox(
+            "Windows Compute Node"
+        )
+        compute_layout = QFormLayout(
+            compute_group
+        )
+
+        self.compute_node_enabled = QCheckBox(
+            "Windows Compute Node verwenden"
+        )
+
+        self.compute_node_host = QLineEdit()
+        self.compute_node_host.setPlaceholderText(
+            "z. B. 192.168.1.100 oder gaming-pc"
+        )
+
+        self.compute_node_port = QSpinBox()
+        self.compute_node_port.setRange(
+            1,
+            65535,
+        )
+        self.compute_node_port.setValue(
+            8766
+        )
+
+        self.compute_node_pair_code = (
+            QLineEdit()
+        )
+        self.compute_node_pair_code.setPlaceholderText(
+            "Pairing-Code des Windows Compute Nodes"
+        )
+
+        self.compute_node_status = QLabel(
+            "Noch nicht geprüft."
+        )
+        self.compute_node_status.setWordWrap(
+            True
+        )
+
+        self.btn_pair_compute_node = QPushButton(
+            "Compute Node verbinden"
+        )
+        self.btn_pair_compute_node.setMinimumHeight(
+            32
+        )
+        self.btn_pair_compute_node.clicked.connect(
+            self.pair_compute_node
+        )
+
+        self.btn_test_compute_node = QPushButton(
+            "Verbindung prüfen"
+        )
+        self.btn_test_compute_node.setMinimumHeight(
+            32
+        )
+        self.btn_test_compute_node.clicked.connect(
+            self.test_compute_node_connection
+        )
+
+        compute_buttons = QHBoxLayout()
+        compute_buttons.addWidget(
+            self.btn_pair_compute_node
+        )
+        compute_buttons.addWidget(
+            self.btn_test_compute_node
+        )
+        compute_buttons.addStretch(1)
+
+        compute_layout.addRow(
+            "",
+            self.compute_node_enabled,
+        )
+        compute_layout.addRow(
+            "Adresse:",
+            self.compute_node_host,
+        )
+        compute_layout.addRow(
+            "API-Port:",
+            self.compute_node_port,
+        )
+        compute_layout.addRow(
+            "Pairing-Code:",
+            self.compute_node_pair_code,
+        )
+        compute_layout.addRow(
+            "",
+            compute_buttons,
+        )
+        compute_layout.addRow(
+            "Status:",
+            self.compute_node_status,
+        )
+
+        compute_note = QLabel(
+            "Der Windows Compute Node wird über Port 8766 "
+            "angesprochen. Beim Pairing speichert MediaHub "
+            "das vom Node ausgegebene API-Token. "
+            "Das bestehende Raspberry-Pi-System bleibt "
+            "davon unabhängig."
+        )
+        compute_note.setWordWrap(True)
+        compute_layout.addRow(
+            "",
+            compute_note,
+        )
+
+        layout.addRow(
+            compute_group
+        )
+
         self.content_layout.addWidget(group)
 
     def test_ai_node_connection(self):
@@ -444,6 +559,572 @@ class GlobalSettingsPanel(QWidget):
             self.ai_ssh_password.clear()
             self.btn_test_ai_node.setEnabled(True)
 
+    def _compute_node_config_from_ui(
+        self,
+        *,
+        api_token: str = "",
+        node_id: str = "windows-main",
+        name: str = "Windows Compute Node",
+    ) -> ComputeNodeConfig:
+        return ComputeNodeConfig(
+            node_id=node_id,
+            name=name,
+            node_type="windows_compute",
+            host=self.compute_node_host.text().strip(),
+            api_port=self.compute_node_port.value(),
+            api_token=api_token.strip(),
+            enabled=self.compute_node_enabled.isChecked(),
+        )
+
+    def _stored_compute_node(
+        self,
+    ) -> dict | None:
+        data = self.settings_service.load()
+
+        if not isinstance(data, dict):
+            return None
+
+        ai = data.get(
+            "ai",
+            {},
+        )
+
+        if not isinstance(ai, dict):
+            return None
+
+        nodes = ai.get(
+            "compute_nodes",
+            [],
+        )
+
+        if not isinstance(nodes, list):
+            return None
+
+        for item in nodes:
+            if not isinstance(item, dict):
+                continue
+
+            if (
+                str(
+                    item.get("type")
+                    or ""
+                ).strip()
+                == "windows_compute"
+            ):
+                return item
+
+        return None
+
+    def _compute_nodes_for_save(
+        self,
+        current_ai: dict,
+    ) -> list[dict]:
+        raw_nodes = current_ai.get(
+            "compute_nodes",
+            [],
+        )
+
+        if not isinstance(raw_nodes, list):
+            raw_nodes = []
+
+        existing = (
+            self._stored_compute_node()
+            or {}
+        )
+
+        node_id = str(
+            existing.get("id")
+            or "windows-main"
+        ).strip()
+
+        name = str(
+            existing.get("name")
+            or "Windows Compute Node"
+        ).strip()
+
+        token = str(
+            existing.get("api_token")
+            or ""
+        ).strip()
+
+        config = (
+            self._compute_node_config_from_ui(
+                api_token=token,
+                node_id=node_id,
+                name=name,
+            )
+        )
+
+        replacement = config.to_dict()
+
+        result: list[dict] = []
+        replaced = False
+
+        for item in raw_nodes:
+            if not isinstance(item, dict):
+                continue
+
+            if (
+                str(
+                    item.get("type")
+                    or ""
+                ).strip()
+                == "windows_compute"
+                and not replaced
+            ):
+                result.append(
+                    replacement
+                )
+                replaced = True
+            else:
+                result.append(
+                    item
+                )
+
+        if not replaced:
+            result.append(
+                replacement
+            )
+
+        return result
+
+    def _save_compute_node_record(
+        self,
+        record: dict,
+    ) -> None:
+        data = self.settings_service.load()
+
+        if not isinstance(data, dict):
+            data = {}
+
+        ai = data.get(
+            "ai",
+            {},
+        )
+
+        if not isinstance(ai, dict):
+            ai = {}
+
+        raw_nodes = ai.get(
+            "compute_nodes",
+            [],
+        )
+
+        if not isinstance(raw_nodes, list):
+            raw_nodes = []
+
+        result: list[dict] = []
+        replaced = False
+
+        record_id = str(
+            record.get("id")
+            or ""
+        ).strip()
+
+        for item in raw_nodes:
+            if not isinstance(item, dict):
+                continue
+
+            item_id = str(
+                item.get("id")
+                or ""
+            ).strip()
+
+            if (
+                record_id
+                and item_id == record_id
+            ):
+                result.append(
+                    record
+                )
+                replaced = True
+            elif (
+                not replaced
+                and str(
+                    item.get("type")
+                    or ""
+                ).strip()
+                == "windows_compute"
+            ):
+                result.append(
+                    record
+                )
+                replaced = True
+            else:
+                result.append(
+                    item
+                )
+
+        if not replaced:
+            result.append(
+                record
+            )
+
+        ai["compute_nodes"] = result
+        data["ai"] = ai
+
+        self.settings_service.save(
+            data
+        )
+
+    def pair_compute_node(self):
+        host = (
+            self.compute_node_host
+            .text()
+            .strip()
+        )
+
+        code = (
+            self.compute_node_pair_code
+            .text()
+            .strip()
+        )
+
+        if not host:
+            self.compute_node_status.setText(
+                "Bitte zuerst die Adresse des "
+                "Windows Compute Nodes eintragen."
+            )
+            return
+
+        if not code:
+            self.compute_node_status.setText(
+                "Bitte den am Windows Compute Node "
+                "angezeigten Pairing-Code eingeben."
+            )
+            return
+
+        self.btn_pair_compute_node.setEnabled(
+            False
+        )
+        self.btn_test_compute_node.setEnabled(
+            False
+        )
+
+        self.compute_node_status.setText(
+            "Pairing wird durchgeführt ..."
+        )
+
+        try:
+            config = (
+                self._compute_node_config_from_ui()
+            )
+
+            client = ComputeNodeClient(
+                config,
+                timeout=8.0,
+            )
+
+            result = client.pair(
+                code
+            )
+
+            node_id = str(
+                result.get("node_id")
+                or "windows-main"
+            ).strip()
+
+            node_name = str(
+                result.get("node_name")
+                or "Windows Compute Node"
+            ).strip()
+
+            api_token = str(
+                result.get("api_token")
+                or ""
+            ).strip()
+
+            paired_config = (
+                self._compute_node_config_from_ui(
+                    api_token=api_token,
+                    node_id=node_id,
+                    name=node_name,
+                )
+            )
+
+            self._save_compute_node_record(
+                paired_config.to_dict()
+            )
+
+            self.compute_node_pair_code.clear()
+
+            self.compute_node_status.setText(
+                "Pairing erfolgreich. "
+                f"{node_name} wurde mit MediaHub verbunden."
+            )
+
+            self.test_compute_node_connection()
+
+        except ComputeNodeConnectionError as error:
+            self.compute_node_status.setText(
+                f"Pairing fehlgeschlagen: {error}"
+            )
+
+        finally:
+            self.btn_pair_compute_node.setEnabled(
+                True
+            )
+            self.btn_test_compute_node.setEnabled(
+                True
+            )
+
+    def test_compute_node_connection(self):
+        host = (
+            self.compute_node_host
+            .text()
+            .strip()
+        )
+
+        if not host:
+            self.compute_node_status.setText(
+                "Bitte zuerst die Adresse des "
+                "Windows Compute Nodes eintragen."
+            )
+            return
+
+        self.btn_test_compute_node.setEnabled(
+            False
+        )
+
+        self.compute_node_status.setText(
+            "Windows Compute Node wird geprüft ..."
+        )
+
+        try:
+            stored = (
+                self._stored_compute_node()
+                or {}
+            )
+
+            config = (
+                self._compute_node_config_from_ui(
+                    api_token=str(
+                        stored.get("api_token")
+                        or ""
+                    ),
+                    node_id=str(
+                        stored.get("id")
+                        or "windows-main"
+                    ),
+                    name=str(
+                        stored.get("name")
+                        or "Windows Compute Node"
+                    ),
+                )
+            )
+
+            client = ComputeNodeClient(
+                config,
+                timeout=8.0,
+            )
+
+            health = client.health()
+
+            if not health.online:
+                self.compute_node_status.setText(
+                    "Windows Compute Node offline – "
+                    f"{health.message}"
+                )
+                return
+
+            if not config.api_token:
+                self.compute_node_status.setText(
+                    "Windows Compute Node online. "
+                    "Noch nicht gekoppelt – bitte "
+                    "Pairing-Code eingeben."
+                )
+                return
+
+            identity = client.identity()
+            capabilities = (
+                client.capabilities()
+            )
+            plugins = client.plugins()
+            workers = client.workers()
+
+            node_name = str(
+                identity.get("node_name")
+                or config.name
+            )
+
+            node_id = str(
+                identity.get("node_id")
+                or health.node_id
+            )
+
+            platform_name = str(
+                capabilities.get("platform")
+                or "unbekannt"
+            )
+
+            machine = str(
+                capabilities.get("machine")
+                or ""
+            )
+
+            cpu = capabilities.get(
+                "cpu",
+                {},
+            )
+
+            if not isinstance(cpu, dict):
+                cpu = {}
+
+            cpu_name = str(
+                cpu.get("name")
+                or "unbekannt"
+            )
+
+            threads = (
+                cpu.get("logical_threads")
+                or "?"
+            )
+
+            accelerators = (
+                capabilities.get(
+                    "accelerators",
+                    [],
+                )
+            )
+
+            if not isinstance(
+                accelerators,
+                list,
+            ):
+                accelerators = []
+
+            accelerator_names: list[str] = []
+
+            for device in accelerators:
+                if not isinstance(
+                    device,
+                    dict,
+                ):
+                    continue
+
+                kind = str(
+                    device.get("kind")
+                    or "GPU"
+                ).upper()
+
+                vendor = str(
+                    device.get("vendor")
+                    or ""
+                ).strip()
+
+                device_name = str(
+                    device.get("name")
+                    or "unbekannt"
+                ).strip()
+
+                display = (
+                    f"{kind}: "
+                    f"{vendor} {device_name}"
+                ).strip()
+
+                memory = (
+                    device.get(
+                        "memory_total_mb"
+                    )
+                )
+
+                if memory is not None:
+                    display += (
+                        f" ({memory} MB)"
+                    )
+
+                accelerator_names.append(
+                    display
+                )
+
+            accelerator_text = (
+                ", ".join(
+                    accelerator_names
+                )
+                if accelerator_names
+                else "keine"
+            )
+
+            modes = capabilities.get(
+                "execution_modes",
+                [],
+            )
+
+            if not isinstance(modes, list):
+                modes = []
+
+            mode_text = (
+                ", ".join(
+                    str(item)
+                    for item in modes
+                )
+                or "keine"
+            )
+
+            plugin_names: list[str] = []
+
+            for plugin in plugins:
+                name = str(
+                    plugin.get("name")
+                    or plugin.get(
+                        "plugin_id"
+                    )
+                    or "Unbekannt"
+                )
+
+                version = str(
+                    plugin.get("version")
+                    or "?"
+                )
+
+                loaded = bool(
+                    plugin.get("loaded")
+                )
+
+                mark = (
+                    "✓"
+                    if loaded
+                    else "✗"
+                )
+
+                plugin_names.append(
+                    f"{mark} {name} {version}"
+                )
+
+            plugin_text = (
+                ", ".join(
+                    plugin_names
+                )
+                if plugin_names
+                else "keine"
+            )
+
+            self.compute_node_status.setText(
+                f"<b>● Online – {node_name}</b><br>"
+                f"Node-ID: {node_id}<br>"
+                f"System: {platform_name} {machine}<br>"
+                f"CPU: {cpu_name} ({threads} Threads)<br>"
+                f"Beschleuniger: {accelerator_text}<br>"
+                f"Ausführungsmodi: {mode_text}<br>"
+                f"Plugins: {plugin_text}<br>"
+                f"Worker: {len(workers)}"
+            )
+
+            self.compute_node_status.setTextFormat(
+                Qt.TextFormat.RichText
+            )
+
+        except ComputeNodeConnectionError as error:
+            self.compute_node_status.setText(
+                "Compute-Node-Prüfung "
+                f"fehlgeschlagen: {error}"
+            )
+
+        finally:
+            self.btn_test_compute_node.setEnabled(
+                True
+            )
+
     def _build_tools_group(self):
         group = QGroupBox("Tool-Status")
         layout = QVBoxLayout(group)
@@ -584,6 +1265,65 @@ class GlobalSettingsPanel(QWidget):
         )
         self.ai_connection_status.setText("Noch nicht geprüft.")
 
+        compute_nodes = ai.get(
+            "compute_nodes",
+            [],
+        )
+
+        compute_node = None
+
+        if isinstance(
+            compute_nodes,
+            list,
+        ):
+            for item in compute_nodes:
+                if (
+                    isinstance(item, dict)
+                    and str(
+                        item.get("type")
+                        or ""
+                    ).strip()
+                    == "windows_compute"
+                ):
+                    compute_node = item
+                    break
+
+        if compute_node is None:
+            compute_node = {}
+
+        self.compute_node_enabled.setChecked(
+            bool(
+                compute_node.get(
+                    "enabled",
+                    False,
+                )
+            )
+        )
+
+        self.compute_node_host.setText(
+            str(
+                compute_node.get(
+                    "host",
+                    "",
+                )
+            )
+        )
+
+        self.compute_node_port.setValue(
+            int(
+                compute_node.get(
+                    "api_port",
+                    8766,
+                )
+                or 8766
+            )
+        )
+
+        self.compute_node_pair_code.clear()
+        self.compute_node_status.setText(
+            "Noch nicht geprüft."
+        )
+
         ui = data.get("ui", {})
         self._set_combo(self.start_page, ui.get("start_page", "Dashboard"))
         self.confirm_restore.setChecked(
@@ -594,6 +1334,14 @@ class GlobalSettingsPanel(QWidget):
         self.refresh_tools()
 
     def save_settings(self):
+        current = self.settings_service.load()
+        if not isinstance(current, dict):
+            current = {}
+
+        current_ai = current.get("ai", {})
+        if not isinstance(current_ai, dict):
+            current_ai = {}
+
         data = {
             "paths": {
                 "downloads_dir": self.path_downloads.text().strip(),
@@ -627,6 +1375,7 @@ class GlobalSettingsPanel(QWidget):
                 "include_downloads": self.backup_include_downloads.isChecked(),
             },
             "ai": {
+                **current_ai,
                 "local_enabled": self.ai_local_enabled.isChecked(),
                 "node_enabled": self.ai_node_enabled.isChecked(),
                 "node_host": self.ai_node_host.text().strip(),
@@ -636,6 +1385,9 @@ class GlobalSettingsPanel(QWidget):
                 "ssh_username": self.ai_ssh_username.text().strip(),
                 "install_path": self.ai_install_path.text().strip(),
                 "mode": self.ai_mode.currentText(),
+                "compute_nodes": self._compute_nodes_for_save(
+                    current_ai
+                ),
             },
             "ui": {
                 "start_page": self.start_page.currentText(),
