@@ -242,6 +242,138 @@ class ComputeNodeClient:
             if isinstance(item, dict)
         ]
 
+    def jobs(
+        self,
+    ) -> list[dict[str, Any]]:
+        data = self._request_json(
+            "GET",
+            "/jobs",
+        )
+
+        jobs = data.get(
+            "jobs",
+            [],
+        )
+
+        if not isinstance(
+            jobs,
+            list,
+        ):
+            raise ComputeNodeConnectionError(
+                "Compute Node hat keine gültige "
+                "Job-Liste geliefert."
+            )
+
+        return [
+            item
+            for item in jobs
+            if isinstance(item, dict)
+        ]
+
+    def job(
+        self,
+        job_id: str,
+    ) -> dict[str, Any]:
+        clean_id = str(
+            job_id or ""
+        ).strip()
+
+        if not clean_id:
+            raise ComputeNodeConnectionError(
+                "Job-ID fehlt."
+            )
+
+        return self._request_json(
+            "GET",
+            f"/jobs/{clean_id}",
+        )
+
+    def create_job(
+        self,
+        job_type: str,
+        *,
+        payload: dict[str, Any] | None = None,
+        execution: dict[str, Any] | None = None,
+    ) -> dict[str, Any]:
+        clean_type = str(
+            job_type or ""
+        ).strip()
+
+        if not clean_type:
+            raise ComputeNodeConnectionError(
+                "Job-Typ fehlt."
+            )
+
+        if payload is not None and not isinstance(
+            payload,
+            dict,
+        ):
+            raise ComputeNodeConnectionError(
+                "Job-Payload muss ein Dictionary sein."
+            )
+
+        if (
+            execution is not None
+            and not isinstance(
+                execution,
+                dict,
+            )
+        ):
+            raise ComputeNodeConnectionError(
+                "Job-Ausführung muss ein "
+                "Dictionary sein."
+            )
+
+        return self._request_json(
+            "POST",
+            "/jobs",
+            payload={
+                "job_type": clean_type,
+                "payload": dict(
+                    payload or {}
+                ),
+                "execution": dict(
+                    execution or {}
+                ),
+            },
+        )
+
+    def execute_job(
+        self,
+        job_id: str,
+    ) -> dict[str, Any]:
+        clean_id = str(
+            job_id or ""
+        ).strip()
+
+        if not clean_id:
+            raise ComputeNodeConnectionError(
+                "Job-ID fehlt."
+            )
+
+        return self._request_json(
+            "POST",
+            f"/jobs/{clean_id}/execute",
+        )
+
+    def cancel_job(
+        self,
+        job_id: str,
+    ) -> dict[str, Any]:
+        clean_id = str(
+            job_id or ""
+        ).strip()
+
+        if not clean_id:
+            raise ComputeNodeConnectionError(
+                "Job-ID fehlt."
+            )
+
+        return self._request_json(
+            "DELETE",
+            f"/jobs/{clean_id}",
+        )
+
     def pairing_status(
         self,
     ) -> dict[str, Any]:
