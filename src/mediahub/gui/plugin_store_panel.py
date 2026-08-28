@@ -980,6 +980,46 @@ class PluginStorePanel(QWidget):
                 "veröffentlichten Plugins."
             )
 
+    @staticmethod
+    def _compute_plugin_action(
+        plugin,
+        installed,
+    ) -> tuple[str, str, bool]:
+        if installed is None:
+            return (
+                "Installieren",
+                "installieren",
+                False,
+            )
+
+        installed_version = str(
+            installed.get("version")
+            or ""
+        ).strip()
+
+        catalog_version = str(
+            plugin.version
+            or ""
+        ).strip()
+
+        if (
+            installed_version
+            and catalog_version
+            and installed_version
+            == catalog_version
+        ):
+            return (
+                "Neu installieren",
+                "neu installieren",
+                True,
+            )
+
+        return (
+            "Aktualisieren",
+            "aktualisieren",
+            True,
+        )
+
     def _show_compute_plugin(
         self,
         row: int,
@@ -1090,41 +1130,24 @@ class PluginStorePanel(QWidget):
             and bool(plugin.sha256_asset)
         )
 
-        if installed is None:
-            self.btn_compute_install.setText(
-                "Installieren"
-            )
-            self.btn_compute_install.setEnabled(
-                can_install
-            )
-            self.btn_compute_uninstall.setEnabled(
-                False
-            )
-        else:
-            installed_version = str(
-                installed.get("version")
-                or ""
-            ).strip()
+        (
+            action_label,
+            _action_text,
+            replace,
+        ) = self._compute_plugin_action(
+            plugin,
+            installed,
+        )
 
-            if (
-                installed_version
-                and installed_version
-                != plugin.version
-            ):
-                self.btn_compute_install.setText(
-                    "Aktualisieren"
-                )
-            else:
-                self.btn_compute_install.setText(
-                    "Neu installieren"
-                )
-
-            self.btn_compute_install.setEnabled(
-                can_install
-            )
-            self.btn_compute_uninstall.setEnabled(
-                True
-            )
+        self.btn_compute_install.setText(
+            action_label
+        )
+        self.btn_compute_install.setEnabled(
+            can_install
+        )
+        self.btn_compute_uninstall.setEnabled(
+            replace
+        )
 
     def uninstall_selected_compute_plugin(self):
         plugins = getattr(
@@ -1277,27 +1300,21 @@ class PluginStorePanel(QWidget):
             None,
         )
 
-        replace = installed is not None
+        (
+            _action_label,
+            action,
+            replace,
+        ) = self._compute_plugin_action(
+            plugin,
+            installed,
+        )
 
-        installed_version = ""
-        if installed is not None:
-            installed_version = str(
-                installed.get("version")
-                or ""
-            ).strip()
-
-        if installed is None:
-            action = "installieren"
+        if action == "installieren":
             success_action = "installiert"
-        elif (
-            installed_version
-            and installed_version != plugin.version
-        ):
-            action = "aktualisieren"
-            success_action = "aktualisiert"
-        else:
-            action = "neu installieren"
+        elif action == "neu installieren":
             success_action = "neu installiert"
+        else:
+            success_action = "aktualisiert"
 
 
         lines = [
