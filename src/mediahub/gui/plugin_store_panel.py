@@ -1,15 +1,15 @@
 from __future__ import annotations
 
+import tempfile
 import webbrowser
 from pathlib import Path
 
 from PySide6.QtCore import Qt
 from PySide6.QtWidgets import (
+    QApplication,
     QCheckBox,
     QComboBox,
     QFileDialog,
-    QProgressDialog,
-    QApplication,
     QHBoxLayout,
     QInputDialog,
     QLabel,
@@ -17,6 +17,7 @@ from PySide6.QtWidgets import (
     QListWidget,
     QListWidgetItem,
     QMessageBox,
+    QProgressDialog,
     QPushButton,
     QTabWidget,
     QTextEdit,
@@ -30,12 +31,19 @@ from src.mediahub.gui.ui_standards import (
     configure_button,
     make_title,
 )
-from src.mediahub.services.ai_node_service import AINodeService
 from src.mediahub.services.ai_node_provisioning_service import (
     AINodeProvisioningError,
     AINodeProvisioningService,
 )
-from src.mediahub.services.ai_plugin_catalog_service import AIPluginCatalogService
+from src.mediahub.services.ai_node_service import AINodeService
+from src.mediahub.services.ai_plugin_catalog_service import (
+    AIPluginCatalogEntry,
+    AIPluginCatalogService,
+)
+from src.mediahub.services.compute_node_service import (
+    ComputeNodeConnectionError,
+    ComputeNodeService,
+)
 from src.mediahub.services.plugin_catalog_service import (
     CatalogPlugin,
     PluginCatalogService,
@@ -61,6 +69,13 @@ class PluginStorePanel(QWidget):
 
         self.mediahub_plugins: list[CatalogPlugin] = []
         self.ai_plugins: list[dict] = []
+        self.compute_catalog_plugins: list[
+            AIPluginCatalogEntry
+        ] = []
+        self.compute_installed_plugins: list[
+            dict
+        ] = []
+        self.compute_capabilities: dict = {}
 
         self._build_ui()
         self.refresh()
@@ -79,8 +94,10 @@ class PluginStorePanel(QWidget):
 
         info = QLabel(
             "MediaHub-Plugins laufen direkt in MediaHub. "
-            "AI-Plugins laufen auf dem verbundenen Raspberry-Pi-AI-Node. "
-            "Installations- und Updatezustände werden bei jedem Öffnen "
+            "AI-Plugins können auf dem Raspberry-Pi-AI-Node oder "
+            "auf verbundenen Windows Compute Nodes laufen. "
+            "Der Store zeigt für jedes Ziel nur kompatible Plugins an. "
+            "Installations- und Updatezustände werden beim Öffnen "
             "des Stores neu geprüft."
         )
         info.setWordWrap(True)
@@ -89,14 +106,33 @@ class PluginStorePanel(QWidget):
         self.tabs = QTabWidget()
         self.mediahub_tab = QWidget()
         self.ai_tab = QWidget()
-        self.tabs.addTab(self.mediahub_tab, "MediaHub-Plugins")
-        self.tabs.addTab(self.ai_tab, "AI-Plugins")
-        layout.addWidget(self.tabs, 1)
+        self.compute_tab = QWidget()
+
+        self.tabs.addTab(
+            self.mediahub_tab,
+            "MediaHub-Plugins",
+        )
+        self.tabs.addTab(
+            self.ai_tab,
+            "AI-Plugins",
+        )
+        self.tabs.addTab(
+            self.compute_tab,
+            "Windows Compute Node",
+        )
+
+        layout.addWidget(
+            self.tabs,
+            1,
+        )
 
         self._build_mediahub_tab()
         self._build_ai_tab()
+        self._build_compute_tab()
 
-        self.tabs.currentChanged.connect(self._tab_changed)
+        self.tabs.currentChanged.connect(
+            self._tab_changed
+        )
 
     def _build_mediahub_tab(self):
         layout = QVBoxLayout(self.mediahub_tab)
@@ -303,6 +339,1107 @@ class PluginStorePanel(QWidget):
 
         self._set_ai_action_buttons(False)
 
+    def _build_compute_tab(self):
+        layout = QVBoxLayout(
+            self.compute_tab
+        )
+
+        self.compute_store_status = QLabel(
+            "Windows Compute Node wird geprüft …"
+        )
+        self.compute_store_status.setWordWrap(
+            True
+        )
+        layout.addWidget(
+            self.compute_store_status
+        )
+
+        node_row = QHBoxLayout()
+
+        node_row.addWidget(
+            QLabel("Zielknoten:")
+        )
+
+        self.compute_node_selector = (
+            QComboBox()
+        )
+
+        self.compute_node_selector.currentIndexChanged.connect(
+            self.load_compute_plugins
+        )
+
+        node_row.addWidget(
+            self.compute_node_selector,
+            1,
+        )
+
+        self.btn_compute_refresh = (
+            configure_button(
+                QPushButton(
+                    "Neu laden"
+                ),
+                (
+                    "Lädt Node-Status, "
+                    "Capabilities und "
+                    "passende Plugins neu."
+                ),
+            )
+        )
+
+        self.btn_compute_refresh.clicked.connect(
+            self.load_compute_plugins
+        )
+
+        node_row.addWidget(
+            self.btn_compute_refresh
+        )
+
+        layout.addLayout(
+            node_row
+        )
+
+        self.compute_catalog_status = QLabel(
+            "Windows-Plugin-Katalog "
+            "noch nicht geladen."
+        )
+        self.compute_catalog_status.setWordWrap(
+            True
+        )
+
+        layout.addWidget(
+            self.compute_catalog_status
+        )
+
+        self.compute_search = QLineEdit()
+        self.compute_search.setPlaceholderText(
+            "Windows-Node-Plugins durchsuchen …"
+        )
+        self.compute_search.textChanged.connect(
+            self.apply_compute_filters
+        )
+
+        layout.addWidget(
+            self.compute_search
+        )
+
+        self.compute_list = QListWidget()
+        self.compute_list.currentRowChanged.connect(
+            self._show_compute_plugin
+        )
+
+        layout.addWidget(
+            self.compute_list,
+            2,
+        )
+
+        self.compute_details = QTextEdit()
+        self.compute_details.setReadOnly(
+            True
+        )
+
+        layout.addWidget(
+            self.compute_details,
+            1,
+        )
+
+        buttons = QHBoxLayout()
+
+        self.btn_compute_install = (
+            configure_button(
+                QPushButton(
+                    "Installieren"
+                ),
+                (
+                    "Installiert das ausgewählte "
+                    "Plugin auf dem Windows "
+                    "Compute Node."
+                ),
+            )
+        )
+
+        # Wird im nächsten Schritt freigeschaltet,
+        # sobald die Node-API Paket-Upload und
+        # Installation unterstützt.
+        self.btn_compute_install.setEnabled(
+            False
+        )
+
+        buttons.addWidget(
+            self.btn_compute_install
+        )
+        self.btn_compute_install.clicked.connect(
+            self.install_selected_compute_plugin
+        )
+        self.btn_compute_uninstall = (
+            configure_button(
+                QPushButton(
+                    "Deinstallieren"
+                ),
+                (
+                    "Deinstalliert das ausgewählte "
+                    "Plugin vom Windows Compute Node."
+                ),
+            )
+        )
+
+        self.btn_compute_uninstall.setEnabled(
+            False
+        )
+
+        self.btn_compute_uninstall.clicked.connect(
+            self.uninstall_selected_compute_plugin
+        )
+
+        buttons.addWidget(
+            self.btn_compute_uninstall
+        )
+
+        buttons.addStretch(1)
+
+        layout.addLayout(
+            buttons
+        )
+
+        note = QLabel(
+            "Dieser Reiter verwendet denselben "
+            "GitHub-AI-Plugin-Katalog wie der "
+            "Raspberry-Pi-AI-Node. Angezeigt "
+            "werden ausschließlich Plugins, "
+            "deren Zielplattform und benötigte "
+            "Capabilities zum ausgewählten "
+            "Windows Compute Node passen."
+        )
+        note.setWordWrap(True)
+
+        layout.addWidget(
+            note
+        )
+
+    def _compute_service(
+        self,
+    ) -> ComputeNodeService:
+        return ComputeNodeService(
+            self.settings_service
+        )
+
+    def _reload_compute_nodes(
+        self,
+    ) -> None:
+        current_id = (
+            self.compute_node_selector
+            .currentData()
+        )
+
+        service = self._compute_service()
+
+        nodes = service.enabled_nodes()
+
+        self.compute_node_selector.blockSignals(
+            True
+        )
+
+        self.compute_node_selector.clear()
+
+        wanted_index = -1
+
+        for index, node in enumerate(
+            nodes
+        ):
+            label = (
+                node.name
+                or node.node_id
+                or node.host
+            )
+
+            if node.host:
+                label += (
+                    f" – {node.host}:"
+                    f"{node.api_port}"
+                )
+
+            self.compute_node_selector.addItem(
+                label,
+                node.node_id,
+            )
+
+            if (
+                current_id
+                and node.node_id
+                == current_id
+            ):
+                wanted_index = index
+
+        if wanted_index >= 0:
+            self.compute_node_selector.setCurrentIndex(
+                wanted_index
+            )
+
+        self.compute_node_selector.blockSignals(
+            False
+        )
+
+    def _selected_compute_node(
+        self,
+    ):
+        node_id = str(
+            self.compute_node_selector
+            .currentData()
+            or ""
+        ).strip()
+
+        if not node_id:
+            return None
+
+        return (
+            self._compute_service()
+            .find_node(node_id)
+        )
+
+    @staticmethod
+    def _compute_capability_tags(
+        capabilities: dict,
+    ) -> set[str]:
+        tags: set[str] = {
+            "windows",
+            "windows_compute",
+            "cpu",
+        }
+
+        machine = str(
+            capabilities.get(
+                "machine"
+            )
+            or ""
+        ).strip().lower()
+
+        if machine:
+            tags.add(machine)
+
+        modes = capabilities.get(
+            "execution_modes",
+            [],
+        )
+
+        if isinstance(modes, list):
+            tags.update(
+                str(item).strip().lower()
+                for item in modes
+                if str(item).strip()
+            )
+
+        accelerators = capabilities.get(
+            "accelerators",
+            [],
+        )
+
+        if isinstance(
+            accelerators,
+            list,
+        ):
+            for device in accelerators:
+                if not isinstance(
+                    device,
+                    dict,
+                ):
+                    continue
+
+                tags.add("gpu")
+
+                kind = str(
+                    device.get("kind")
+                    or ""
+                ).strip().lower()
+
+                vendor = str(
+                    device.get("vendor")
+                    or ""
+                ).strip().lower()
+
+                if kind:
+                    tags.add(kind)
+
+                if vendor:
+                    tags.add(vendor)
+
+                backends = device.get(
+                    "backends",
+                    [],
+                )
+
+                if isinstance(
+                    backends,
+                    list,
+                ):
+                    tags.update(
+                        str(item)
+                        .strip()
+                        .lower()
+                        for item in backends
+                        if str(item).strip()
+                    )
+
+        return tags
+
+    def _compute_platform_name(
+        self,
+        capabilities: dict,
+    ) -> str:
+        machine = str(
+            capabilities.get(
+                "machine"
+            )
+            or ""
+        ).strip().lower()
+
+        if machine in {
+            "amd64",
+            "x86_64",
+        }:
+            return "windows-amd64"
+
+        if machine in {
+            "arm64",
+            "aarch64",
+        }:
+            return "windows-arm64"
+
+        if machine:
+            return (
+                "windows-"
+                + machine
+            )
+
+        return "windows"
+
+    def load_compute_plugins(self):
+        if not hasattr(
+            self,
+            "compute_node_selector",
+        ):
+            return
+
+        self.compute_list.clear()
+        self.compute_details.clear()
+
+        self._reload_compute_nodes()
+
+        node = self._selected_compute_node()
+
+        if node is None:
+            self.compute_catalog_plugins = []
+            self.compute_installed_plugins = []
+            self.compute_store_status.setText(
+                "Kein aktivierter Windows "
+                "Compute Node konfiguriert."
+            )
+            self.compute_catalog_status.setText(
+                "Verbinde zuerst einen Windows "
+                "Compute Node unter "
+                "Globale Einstellungen → "
+                "KI-Verbindungen."
+            )
+            return
+
+        client = (
+            self._compute_service()
+            .client_for(
+                node,
+                timeout=3.0,
+            )
+        )
+
+        health = client.health()
+
+        if not health.online:
+            self.compute_catalog_plugins = []
+            self.compute_installed_plugins = []
+            self.compute_store_status.setText(
+                "Windows Compute Node offline: "
+                + health.message
+            )
+            return
+
+        if not node.api_token:
+            self.compute_catalog_plugins = []
+            self.compute_installed_plugins = []
+            self.compute_store_status.setText(
+                "Windows Compute Node ist online, "
+                "aber noch nicht gekoppelt."
+            )
+            return
+
+        try:
+            identity = client.identity()
+            capabilities = (
+                client.capabilities()
+            )
+            installed = client.plugins()
+        except ComputeNodeConnectionError as error:
+            self.compute_catalog_plugins = []
+            self.compute_installed_plugins = []
+            self.compute_store_status.setText(
+                "Compute-Node-Daten konnten "
+                f"nicht geladen werden: {error}"
+            )
+            return
+
+        self.compute_capabilities = (
+            capabilities
+            if isinstance(
+                capabilities,
+                dict,
+            )
+            else {}
+        )
+
+        self.compute_installed_plugins = (
+            installed
+        )
+
+        node_name = str(
+            identity.get(
+                "node_name"
+            )
+            or node.name
+            or node.node_id
+        )
+
+        platform_name = (
+            self._compute_platform_name(
+                self.compute_capabilities
+            )
+        )
+
+        tags = (
+            self._compute_capability_tags(
+                self.compute_capabilities
+            )
+        )
+
+        try:
+            full_catalog = (
+                self.ai_catalog_service
+                .fetch_catalog()
+            )
+        except (
+            OSError,
+            RuntimeError,
+            ValueError,
+        ) as error:
+            self.compute_catalog_plugins = []
+            self.compute_store_status.setText(
+                f"● Online – {node_name}"
+            )
+            self.compute_catalog_status.setText(
+                "AI-Plugin-Katalog konnte "
+                f"nicht geladen werden: {error}"
+            )
+            return
+
+        self.compute_catalog_plugins = [
+            plugin
+            for plugin in full_catalog
+            if (
+                plugin.supports_target(
+                    "windows_compute"
+                )
+                and plugin.supports_platform(
+                    platform_name
+                )
+                and plugin.capabilities_match(
+                    tags
+                )
+            )
+        ]
+
+        self.compute_store_status.setText(
+            f"● Online – {node_name} | "
+            f"{platform_name} | "
+            f"{len(installed)} installierte "
+            "Node-Plugins"
+        )
+
+        self.compute_catalog_status.setText(
+            f"{len(self.compute_catalog_plugins)} "
+            "passende Windows-Node-Plugins "
+            "im GitHub-Katalog."
+        )
+
+        self.apply_compute_filters()
+
+    def apply_compute_filters(self):
+        if not hasattr(
+            self,
+            "compute_list",
+        ):
+            return
+
+        query = (
+            self.compute_search
+            .text()
+            .strip()
+            .lower()
+        )
+
+        plugins = [
+            plugin
+            for plugin
+            in self.compute_catalog_plugins
+            if (
+                not query
+                or query
+                in plugin.name.lower()
+                or query
+                in plugin.plugin_id.lower()
+                or query
+                in plugin.description.lower()
+            )
+        ]
+
+        self._filtered_compute_plugins = (
+            plugins
+        )
+
+        self.compute_list.clear()
+
+        installed_by_id = {
+            str(
+                item.get(
+                    "plugin_id"
+                )
+                or item.get("id")
+                or ""
+            ): item
+            for item
+            in self.compute_installed_plugins
+            if isinstance(
+                item,
+                dict,
+            )
+        }
+
+        for plugin in plugins:
+            installed = installed_by_id.get(
+                plugin.plugin_id
+            )
+
+            if installed is None:
+                state = (
+                    "Nicht installiert"
+                )
+            else:
+                installed_version = str(
+                    installed.get(
+                        "version"
+                    )
+                    or "?"
+                )
+
+                if (
+                    self._version_parts(
+                        plugin.version
+                    )
+                    > self._version_parts(
+                        installed_version
+                    )
+                ):
+                    state = (
+                        "Update verfügbar: "
+                        f"v{installed_version} "
+                        f"→ v{plugin.version}"
+                    )
+                else:
+                    state = (
+                        "Installiert: "
+                        f"v{installed_version}"
+                    )
+
+            item = QListWidgetItem(
+                f"{plugin.name}  "
+                f"v{plugin.version} – "
+                f"{state}"
+            )
+
+            item.setData(
+                Qt.ItemDataRole.UserRole,
+                plugin.plugin_id,
+            )
+
+            self.compute_list.addItem(
+                item
+            )
+
+        if plugins:
+            self.compute_list.setCurrentRow(
+                0
+            )
+        else:
+            self.compute_details.setPlainText(
+                "Für diesen Windows Compute "
+                "Node passen aktuell keine "
+                "veröffentlichten Plugins."
+            )
+
+    def _show_compute_plugin(
+        self,
+        row: int,
+    ):
+        plugins = getattr(
+            self,
+            "_filtered_compute_plugins",
+            [],
+        )
+
+        if not 0 <= row < len(
+            plugins
+        ):
+            self.compute_details.clear()
+            self.btn_compute_install.setEnabled(
+                False
+            )
+            self.btn_compute_uninstall.setEnabled(
+                False
+            )
+            return
+
+        plugin = plugins[row]
+
+        installed = next(
+            (
+                item
+                for item
+                in self.compute_installed_plugins
+                if isinstance(
+                    item,
+                    dict,
+                )
+                and str(
+                    item.get(
+                        "plugin_id"
+                    )
+                    or item.get("id")
+                    or ""
+                )
+                == plugin.plugin_id
+            ),
+            None,
+        )
+
+        lines = [
+            plugin.name,
+            f"Version: {plugin.version}",
+            "",
+            plugin.description,
+            "",
+            "Ziele: "
+            + ", ".join(
+                plugin.targets
+            ),
+            "Plattformen: "
+            + (
+                ", ".join(
+                    plugin.platforms
+                )
+                or "alle"
+            ),
+            "Benötigte Capabilities: "
+            + (
+                ", ".join(
+                    plugin.required_capabilities
+                )
+                or "keine"
+            ),
+            "",
+            "GitHub-Asset: "
+            + (
+                plugin.package_asset
+                or "nicht angegeben"
+            ),
+        ]
+
+        if installed:
+            lines.extend(
+                [
+                    "",
+                    "Auf diesem Node installiert:",
+                    str(
+                        installed.get(
+                            "version"
+                        )
+                        or "unbekannt"
+                    ),
+                ]
+            )
+        else:
+            lines.extend(
+                [
+                    "",
+                    (
+                        "Auf diesem Node noch "
+                        "nicht installiert."
+                    ),
+                ]
+            )
+
+        self.compute_details.setPlainText(
+            "\n".join(lines)
+        )
+
+        can_install = (
+            bool(plugin.package_asset)
+            and bool(plugin.sha256_asset)
+        )
+
+        if installed is None:
+            self.btn_compute_install.setText(
+                "Installieren"
+            )
+            self.btn_compute_install.setEnabled(
+                can_install
+            )
+            self.btn_compute_uninstall.setEnabled(
+                False
+            )
+        else:
+            installed_version = str(
+                installed.get("version")
+                or ""
+            ).strip()
+
+            if (
+                installed_version
+                and installed_version
+                != plugin.version
+            ):
+                self.btn_compute_install.setText(
+                    "Aktualisieren"
+                )
+            else:
+                self.btn_compute_install.setText(
+                    "Neu installieren"
+                )
+
+            self.btn_compute_install.setEnabled(
+                can_install
+            )
+            self.btn_compute_uninstall.setEnabled(
+                True
+            )
+
+    def uninstall_selected_compute_plugin(self):
+        plugins = getattr(
+            self,
+            "_filtered_compute_plugins",
+            [],
+        )
+        row = self.compute_list.currentRow()
+
+        if not 0 <= row < len(plugins):
+            return
+
+        plugin = plugins[row]
+        node = self._selected_compute_node()
+
+        if node is None:
+            QMessageBox.warning(
+                self,
+                "Windows-Node-Plugin",
+                "Kein Windows Compute Node ausgewählt.",
+            )
+            return
+
+        installed = next(
+            (
+                item
+                for item
+                in self.compute_installed_plugins
+                if isinstance(item, dict)
+                and str(
+                    item.get("plugin_id")
+                    or item.get("id")
+                    or ""
+                )
+                == plugin.plugin_id
+            ),
+            None,
+        )
+
+        if installed is None:
+            QMessageBox.information(
+                self,
+                "Windows-Node-Plugin",
+                "Das Plugin ist auf diesem Node "
+                "nicht installiert.",
+            )
+            self.load_compute_plugins()
+            return
+
+        answer = QMessageBox.question(
+            self,
+            "Plugin deinstallieren",
+            (
+                f"{plugin.name}\n\n"
+                f"Node: {node.name}\n\n"
+                "Soll dieses Plugin wirklich "
+                "deinstalliert werden?"
+            ),
+            QMessageBox.StandardButton.Yes
+            | QMessageBox.StandardButton.No,
+            QMessageBox.StandardButton.No,
+        )
+
+        if answer != QMessageBox.StandardButton.Yes:
+            return
+
+        try:
+            client = (
+                self._compute_service()
+                .client_for(
+                    node,
+                    timeout=60.0,
+                )
+            )
+
+            result = client.uninstall_plugin(
+                plugin.plugin_id
+            )
+
+        except (
+            ComputeNodeConnectionError,
+            RuntimeError,
+            OSError,
+            ValueError,
+        ) as exc:
+            QMessageBox.critical(
+                self,
+                "Deinstallation fehlgeschlagen",
+                str(exc),
+            )
+            return
+
+        if not result.get("uninstalled"):
+            QMessageBox.critical(
+                self,
+                "Deinstallation fehlgeschlagen",
+                (
+                    "Der Windows Compute Node hat "
+                    "die Deinstallation nicht bestätigt."
+                ),
+            )
+            return
+
+        QMessageBox.information(
+            self,
+            "Plugin deinstalliert",
+            (
+                f"{plugin.name} wurde vom "
+                "Windows Compute Node "
+                "deinstalliert."
+            ),
+        )
+
+        self.load_compute_plugins()
+
+    def install_selected_compute_plugin(self):
+        plugins = getattr(
+            self,
+            "_filtered_compute_plugins",
+            [],
+        )
+        row = self.compute_list.currentRow()
+
+        if not 0 <= row < len(plugins):
+            return
+
+        plugin = plugins[row]
+        node = self._selected_compute_node()
+
+        if node is None:
+            QMessageBox.warning(
+                self,
+                "Windows-Node-Plugin",
+                "Kein Windows Compute Node ausgewählt.",
+            )
+            return
+
+        installed = next(
+            (
+                item
+                for item in self.compute_installed_plugins
+                if isinstance(item, dict)
+                and str(
+                    item.get("plugin_id")
+                    or item.get("id")
+                    or ""
+                )
+                == plugin.plugin_id
+            ),
+            None,
+        )
+
+        replace = installed is not None
+
+        installed_version = ""
+        if installed is not None:
+            installed_version = str(
+                installed.get("version")
+                or ""
+            ).strip()
+
+        if installed is None:
+            action = "installieren"
+            success_action = "installiert"
+        elif (
+            installed_version
+            and installed_version != plugin.version
+        ):
+            action = "aktualisieren"
+            success_action = "aktualisiert"
+        else:
+            action = "neu installieren"
+            success_action = "neu installiert"
+
+
+        lines = [
+            f"Plugin: {plugin.name}",
+            f"Version: {plugin.version}",
+            (
+                "Windows Compute Node: "
+                f"{node.name or node.node_id}"
+            ),
+        ]
+
+        if installed:
+            lines.append(
+                "Installierte Version: "
+                + str(
+                    installed.get("version")
+                    or "unbekannt"
+                )
+            )
+
+        lines.extend(
+            [
+                "",
+                (
+                    "MediaHub lädt das Plugin und "
+                    "die SHA-256-Prüfsumme aus "
+                    "dem Plugin-Katalog."
+                ),
+                (
+                    "Das Paket wird vor der "
+                    "Übertragung geprüft."
+                ),
+                "",
+                f"Plugin jetzt {action}?",
+            ]
+        )
+
+        answer = QMessageBox.question(
+            self,
+            "Windows-Node-Plugin",
+            "\n".join(lines),
+            (
+                QMessageBox.StandardButton.Yes
+                | QMessageBox.StandardButton.No
+            ),
+            QMessageBox.StandardButton.No,
+        )
+
+        if answer != QMessageBox.StandardButton.Yes:
+            return
+
+        try:
+            with tempfile.TemporaryDirectory(
+                prefix="mediahub_compute_plugin_"
+            ) as temp_dir:
+                filename = (
+                    Path(plugin.package_asset).name
+                    or (
+                        plugin.plugin_id
+                        + ".mhaiplugin"
+                    )
+                )
+
+                if not filename.lower().endswith(
+                    ".mhaiplugin"
+                ):
+                    raise RuntimeError(
+                        "Der Katalog verweist nicht "
+                        "auf ein .mhaiplugin-Paket."
+                    )
+
+                package_path = str(
+                    Path(temp_dir) / filename
+                )
+
+                (
+                    verified_package,
+                    sha256,
+                ) = (
+                    self.ai_catalog_service
+                    .download_compute_package(
+                        plugin,
+                        package_path,
+                    )
+                )
+
+                client = (
+                    self._compute_service()
+                    .client_for(
+                        node,
+                        timeout=60.0,
+                    )
+                )
+
+                result = client.install_plugin(
+                    verified_package,
+                    sha256=sha256,
+                    replace=replace,
+                )
+
+        except (
+            ComputeNodeConnectionError,
+            RuntimeError,
+            OSError,
+            ValueError,
+        ) as error:
+            QMessageBox.warning(
+                self,
+                "Windows-Node-Plugin",
+                (
+                    f"{plugin.name} konnte nicht "
+                    f"{action} werden:\n{error}"
+                ),
+            )
+            return
+
+        if not bool(
+            result.get("installed", False)
+        ):
+            QMessageBox.warning(
+                self,
+                "Windows-Node-Plugin",
+                (
+                    "Der Windows Compute Node hat "
+                    "die Installation nicht als "
+                    "erfolgreich bestätigt."
+                ),
+            )
+            return
+
+        QMessageBox.information(
+            self,
+            "Windows-Node-Plugin",
+            (
+                f"{plugin.name} wurde erfolgreich "
+                f"{success_action}."
+
+            ),
+        )
+
+        self.load_compute_plugins()
+
     def refresh(self):
         try:
             self.plugin_loader.discover()
@@ -311,10 +1448,15 @@ class PluginStorePanel(QWidget):
         self.load_mediahub_catalog()
         self.load_ai_catalog()
         self.load_ai_plugins()
+        self.load_compute_plugins()
 
     def _tab_changed(self, index: int):
-        if self.tabs.widget(index) is self.ai_tab:
+        current = self.tabs.widget(index)
+
+        if current is self.ai_tab:
             self.load_ai_plugins()
+        elif current is self.compute_tab:
+            self.load_compute_plugins()
 
     def _installed_mediahub_plugins(self) -> dict[str, object]:
         try:

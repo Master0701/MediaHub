@@ -7,6 +7,7 @@ import urllib.error
 import urllib.parse
 import urllib.request
 from dataclasses import dataclass
+from pathlib import Path
 from typing import Any, ClassVar
 
 
@@ -312,6 +313,155 @@ class ComputeNodeClient:
 
         return result
 
+    def install_plugin(
+        self,
+        package_path: str | Path,
+        *,
+        sha256: str,
+        replace: bool = False,
+    ) -> dict:
+        """Installiert ein .mhaiplugin-Paket auf dem Compute Node."""
+
+        package = Path(package_path)
+
+        if not package.is_file():
+            raise ComputeNodeConnectionError(
+                f"Plugin-Paket nicht gefunden: {package}"
+            )
+
+        if package.suffix.lower() != ".mhaiplugin":
+            raise ComputeNodeConnectionError(
+                "Für Windows Compute Nodes sind nur "
+                ".mhaiplugin-Pakete zulässig."
+            )
+
+        expected_sha256 = str(
+            sha256
+        ).strip().lower()
+
+        if len(expected_sha256) != 64:
+            raise ComputeNodeConnectionError(
+                "Ungültige SHA-256-Prüfsumme."
+            )
+
+        headers = {
+            "Content-Type": (
+                "application/octet-stream"
+            ),
+            "X-Plugin-Filename": package.name,
+            "X-Plugin-SHA256": expected_sha256,
+            "X-Plugin-Replace": (
+                "true"
+                if replace
+                else "false"
+            ),
+        }
+
+        if self.config.api_token:
+            headers["Authorization"] = (
+                "Bearer "
+                + self.config.api_token
+            )
+
+        request = urllib.request.Request(
+            self.config.base_url
+            + "/plugins/install",
+            data=package.read_bytes(),
+            headers=headers,
+            method="POST",
+        )
+
+        try:
+            with urllib.request.urlopen(
+                request,
+                timeout=max(
+                    self.timeout,
+                    60.0,
+                ),
+            ) as response:
+                payload = response.read()
+
+        except urllib.error.HTTPError as error:
+            try:
+                detail = json.loads(
+                    error.read().decode(
+                        "utf-8"
+                    )
+                )
+                message = str(
+                    detail.get("detail")
+                    or detail.get("error")
+                    or error
+                )
+            except (
+                UnicodeDecodeError,
+                json.JSONDecodeError,
+                AttributeError,
+            ):
+                message = str(error)
+
+            raise ComputeNodeConnectionError(
+                message
+            ) from error
+
+        except (
+            urllib.error.URLError,
+            TimeoutError,
+            OSError,
+        ) as error:
+            raise ComputeNodeConnectionError(
+                "Windows Compute Node konnte "
+                "das Plugin-Paket nicht empfangen: "
+                f"{error}"
+            ) from error
+
+        if not payload:
+            return {}
+
+        try:
+            result = json.loads(
+                payload.decode("utf-8")
+            )
+        except (
+            UnicodeDecodeError,
+            json.JSONDecodeError,
+        ) as error:
+            raise ComputeNodeConnectionError(
+                "Windows Compute Node hat eine "
+                "ungültige Installationsantwort "
+                "zurückgegeben."
+            ) from error
+
+        if not isinstance(result, dict):
+            raise ComputeNodeConnectionError(
+                "Ungültige Installationsantwort "
+                "des Windows Compute Nodes."
+            )
+
+        return result
+
+    def uninstall_plugin(
+        self,
+        plugin_id: str,
+    ) -> dict[str, Any]:
+        """Deinstalliert ein Plugin vom Windows Compute Node."""
+
+        plugin_id = str(plugin_id).strip()
+
+        if not plugin_id:
+            raise ComputeNodeConnectionError(
+                "Plugin-ID fehlt."
+            )
+
+        return self._request_json(
+            "POST",
+            "/plugins/uninstall",
+            payload=None,
+            extra_headers={
+                "X-Plugin-ID": plugin_id,
+            },
+        )
+
     def _request_json(
         self,
         method: str,
@@ -319,6 +469,7 @@ class ComputeNodeClient:
         *,
         payload: dict[str, Any] | None = None,
         authenticated: bool = True,
+        extra_headers: dict[str, str] | None = None,
     ) -> dict[str, Any]:
         base_url = self.config.base_url
 
@@ -345,6 +496,9 @@ class ComputeNodeClient:
             headers["Content-Type"] = (
                 "application/json; charset=utf-8"
             )
+
+        if extra_headers:
+            headers.update(extra_headers)
 
         if authenticated:
             token = self.config.api_token.strip()
