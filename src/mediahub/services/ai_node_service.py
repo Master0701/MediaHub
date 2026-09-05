@@ -2,14 +2,13 @@
 
 from __future__ import annotations
 
-from pathlib import Path
-
 import hashlib
 import json
 import urllib.error
 import urllib.parse
 import urllib.request
 from dataclasses import dataclass
+from pathlib import Path
 from typing import Any
 
 
@@ -228,6 +227,212 @@ class AINodeService:
             f"/plugins/{self._plugin_id(plugin_id)}?{query}",
         )
 
+    def create_job(
+        self,
+        job_type: str,
+        payload: dict[str, Any] | None = None,
+        *,
+        preparing: bool = False,
+    ) -> dict[str, Any]:
+        value = str(job_type).strip()
+
+        if not value:
+            raise AINodeConnectionError(
+                "Kein AI-Node-Job-Typ angegeben."
+            )
+
+        body = json.dumps(
+            {
+                "job_type": value,
+                "payload": payload or {},
+                "preparing": bool(preparing),
+            },
+            ensure_ascii=False,
+        ).encode("utf-8")
+
+        return self._request_json(
+            "POST",
+            "/jobs",
+            body=body,
+            headers={
+                "Content-Type": "application/json",
+            },
+        )
+
+    def get_job(
+        self,
+        job_id: int,
+    ) -> dict[str, Any]:
+        try:
+            value = int(job_id)
+        except (TypeError, ValueError) as error:
+            raise AINodeConnectionError(
+                "Ungültige AI-Node-Job-ID."
+            ) from error
+
+        if value <= 0:
+            raise AINodeConnectionError(
+                "Ungültige AI-Node-Job-ID."
+            )
+
+        return self._request_json(
+            "GET",
+            f"/jobs/{value}",
+        )
+
+    def upload_job_input(
+        self,
+        job_id: int,
+        input_path: str | Path,
+    ) -> dict[str, Any]:
+        try:
+            value = int(job_id)
+        except (TypeError, ValueError) as error:
+            raise AINodeConnectionError(
+                "Ungültige AI-Node-Job-ID."
+            ) from error
+
+        if value <= 0:
+            raise AINodeConnectionError(
+                "Ungültige AI-Node-Job-ID."
+            )
+
+        path = Path(input_path)
+
+        if not path.is_file():
+            raise AINodeConnectionError(
+                f"Eingabedatei wurde nicht gefunden: {path}"
+            )
+
+        size = path.stat().st_size
+
+        if size <= 0:
+            raise AINodeConnectionError(
+                f"Eingabedatei ist leer: {path}"
+            )
+
+        headers = self._headers()
+        headers.update(
+            {
+                "Content-Type": "application/octet-stream",
+                "Content-Length": str(size),
+                "X-Filename": path.name,
+            }
+        )
+
+        try:
+            with path.open("rb") as handle:
+                request = urllib.request.Request(
+                    self.config.base_url
+                    + f"/jobs/{value}/input",
+                    data=handle,
+                    headers=headers,
+                    method="PUT",
+                )
+
+                with urllib.request.urlopen(
+                    request,
+                    timeout=None,
+                ) as response:
+                    raw = response.read().decode("utf-8")
+        except urllib.error.HTTPError as error:
+            detail = self._http_error_detail(error)
+            raise AINodeConnectionError(
+                f"AI-Node antwortet mit HTTP "
+                f"{error.code}: {detail}"
+            ) from error
+        except urllib.error.URLError as error:
+            reason = getattr(
+                error,
+                "reason",
+                error,
+            )
+            raise AINodeConnectionError(
+                f"AI-Node nicht erreichbar: {reason}"
+            ) from error
+        except OSError as error:
+            raise AINodeConnectionError(
+                f"Fehler beim Datei-Upload "
+                f"zum AI-Node: {error}"
+            ) from error
+
+        try:
+            data = json.loads(raw)
+        except json.JSONDecodeError as error:
+            raise AINodeConnectionError(
+                "AI-Node hat nach dem Datei-Upload "
+                "ungültiges JSON zurückgegeben."
+            ) from error
+
+        if not isinstance(data, dict):
+            raise AINodeConnectionError(
+                "AI-Node-Antwort nach dem Datei-Upload "
+                "besitzt ein ungültiges Format."
+            )
+
+        return data
+
+    def list_job_types(self) -> list[str]:
+        data = self._request_json(
+            "GET",
+            "/jobs/types",
+        )
+
+        values = data.get("job_types", [])
+
+        if not isinstance(values, list):
+            raise AINodeConnectionError(
+                "AI-Node hat keine gültige Job-Typ-Liste geliefert."
+            )
+
+        return [
+            str(value).strip()
+            for value in values
+            if str(value).strip()
+        ]
+
+    def wait_for_job(
+        self,
+        job_id: int,
+        *,
+        poll_interval: float = 5.0,
+        max_wait_seconds: float | None = None,
+    ) -> dict[str, Any]:
+        import time
+
+        interval = max(
+            0.1,
+            float(poll_interval),
+        )
+        started = time.monotonic()
+
+        while True:
+            current = self.get_job(job_id)
+
+            state = str(
+                current.get("status")
+                or ""
+            ).strip().lower()
+
+            if state in {
+                "completed",
+                "failed",
+                "cancelled",
+            }:
+                return current
+
+            if (
+                max_wait_seconds is not None
+                and time.monotonic() - started
+                >= float(max_wait_seconds)
+            ):
+                raise AINodeConnectionError(
+                    f"AI-Node-Job {job_id} läuft noch; "
+                    "maximale Wartezeit erreicht."
+                )
+
+            time.sleep(interval)
+
     def _request_json(
         self,
         method: str,
@@ -236,10 +441,14 @@ class AINodeService:
         body: bytes | None = None,
         headers: dict[str, str] | None = None,
     ) -> dict[str, Any]:
+        request_headers = self._headers()
+        if headers:
+            request_headers.update(headers)
+
         request = urllib.request.Request(
             self.config.base_url + path,
             data=body,
-            headers=headers or self._headers(),
+            headers=request_headers,
             method=method,
         )
 

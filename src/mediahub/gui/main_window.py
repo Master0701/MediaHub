@@ -3,10 +3,10 @@ import platform
 import re
 import shutil
 import sqlite3
-import subprocess
-import sys
 from pathlib import Path
 
+from PySide6.QtCore import Qt, QUrl, Signal, Slot
+from PySide6.QtGui import QAction, QDesktopServices, QKeySequence
 from PySide6.QtWidgets import (
     QApplication,
     QDialog,
@@ -29,56 +29,52 @@ from PySide6.QtWidgets import (
     QVBoxLayout,
     QWidget,
 )
-from PySide6.QtGui import QAction, QDesktopServices, QKeySequence
-from PySide6.QtCore import Qt, QUrl, Signal, Slot
 
+from src.mediahub.app_info import APP_VERSION
 from src.mediahub.gui.app_theme import dark_theme
-from src.mediahub.gui.channel_panel import ChannelPanel
-from src.mediahub.gui.settings_panel import SettingsPanel
-from src.mediahub.gui.global_settings_panel import GlobalSettingsPanel
-from src.mediahub.gui.log_panel import LogPanel
-from src.mediahub.gui.download_queue_panel import DownloadQueuePanel
-from src.mediahub.gui.library_panel import LibraryPanel
-from src.mediahub.gui.dashboard_panel import DashboardPanel
-from src.mediahub.gui.job_queue_panel import JobQueuePanel
-from src.mediahub.gui.scheduler_panel import SchedulerPanel
-from src.mediahub.gui.health_check_panel import HealthCheckPanel
-from src.mediahub.gui.statistics_panel import StatisticsPanel
-from src.mediahub.gui.recovery_center import RecoveryCenter
-from src.mediahub.gui.help_center import HelpCenter
 from src.mediahub.gui.assistant_panel import AssistantPanel
-from src.mediahub.gui.plugin_store_panel import PluginStorePanel
+from src.mediahub.gui.channel_panel import ChannelPanel
+from src.mediahub.gui.dashboard_panel import DashboardPanel
+from src.mediahub.gui.download_queue_panel import DownloadQueuePanel
+from src.mediahub.gui.global_settings_panel import GlobalSettingsPanel
+from src.mediahub.gui.health_check_panel import HealthCheckPanel
+from src.mediahub.gui.help_center import HelpCenter
+from src.mediahub.gui.job_queue_panel import JobQueuePanel
+from src.mediahub.gui.library_panel import LibraryPanel
+from src.mediahub.gui.log_panel import LogPanel
+from src.mediahub.gui.managers.assistant_manager import AssistantManager
+from src.mediahub.gui.managers.database_manager import DatabaseManager
+from src.mediahub.gui.managers.download_manager import DownloadManager
+from src.mediahub.gui.managers.help_manager import HelpManager
+from src.mediahub.gui.managers.job_queue_manager import JobQueueManager
+from src.mediahub.gui.managers.library_manager import LibraryManager
+from src.mediahub.gui.managers.playlist_manager import PlaylistManager
+from src.mediahub.gui.managers.preview_manager import PreviewManager
+from src.mediahub.gui.managers.recovery_manager import RecoveryManager
+from src.mediahub.gui.managers.scheduler_manager import SchedulerManager
+from src.mediahub.gui.managers.statistics_manager import StatisticsManager
+from src.mediahub.gui.managers.sync_manager import SyncManager
+from src.mediahub.gui.managers.tool_manager import ToolManager
 from src.mediahub.gui.plugin_center import PluginCenter
 from src.mediahub.gui.plugin_gui_panel import PluginGuiPanel
+from src.mediahub.gui.plugin_store_panel import PluginStorePanel
+from src.mediahub.gui.recovery_center import RecoveryCenter
+from src.mediahub.gui.release_gate import open_release_assistant_with_gate
+from src.mediahub.gui.scheduler_panel import SchedulerPanel
+from src.mediahub.gui.settings_panel import SettingsPanel
+from src.mediahub.gui.setup_wizard import SetupWizard
+from src.mediahub.gui.statistics_panel import StatisticsPanel
+from src.mediahub.gui.video_selection_dialog import VideoSelectionDialog
+from src.mediahub.models.channel import Channel
 from src.mediahub.plugins.plugin_api import MediaHubPluginAPI
 from src.mediahub.plugins.web_setup_wizard import WebSetupWizardService
-from src.mediahub.models.channel import Channel
-from src.mediahub.gui.release_gate import open_release_assistant_with_gate
-from src.mediahub.gui.video_selection_dialog import VideoSelectionDialog
-from src.mediahub.gui.setup_wizard import SetupWizard
-
-from src.mediahub.gui.managers.playlist_manager import PlaylistManager
-from src.mediahub.gui.managers.download_manager import DownloadManager
-from src.mediahub.gui.managers.preview_manager import PreviewManager
-from src.mediahub.gui.managers.tool_manager import ToolManager
-from src.mediahub.gui.managers.sync_manager import SyncManager
-from src.mediahub.gui.managers.database_manager import DatabaseManager
-from src.mediahub.gui.managers.library_manager import LibraryManager
-from src.mediahub.gui.managers.statistics_manager import StatisticsManager
-from src.mediahub.gui.managers.scheduler_manager import SchedulerManager
-from src.mediahub.gui.managers.job_queue_manager import JobQueueManager
-from src.mediahub.gui.managers.recovery_manager import RecoveryManager
-from src.mediahub.gui.managers.assistant_manager import AssistantManager
-from src.mediahub.gui.managers.help_manager import HelpManager
-
-from src.mediahub.services.youtube_service import YouTubeService
-from src.mediahub.services.playlist_service import PlaylistService
-from src.mediahub.services.download_service import DownloadService
-from src.mediahub.services.tool_service import ToolService
 from src.mediahub.services.archive_service import ArchiveService
+from src.mediahub.services.download_service import DownloadService
+from src.mediahub.services.node_worker_provider import NodeWorkerProvider
+from src.mediahub.services.playlist_service import PlaylistService
+from src.mediahub.services.tool_service import ToolService
+from src.mediahub.services.youtube_service import YouTubeService
 from src.mediahub.storage.repository import MediaRepository
-from src.mediahub.app_info import APP_VERSION
-
 
 APP_VERSION_LABEL = f"v{APP_VERSION}"
 
@@ -720,6 +716,15 @@ class MainWindow(QMainWindow):
             ),
             tool_service=self.tool_service,
         )
+        node_worker_provider = NodeWorkerProvider(
+            self.base_dir
+        )
+        plugin_api.register_capability(
+            "speech_to_text",
+            node_worker_provider,
+            owner_id="mediahub.core.node_workers",
+        )
+
         self.plugin_center = PluginCenter(
             base_dir=self.base_dir,
             parent=self,

@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import http.client
 import json
 import urllib.error
 import urllib.parse
@@ -338,6 +339,197 @@ class ComputeNodeClient:
             },
         )
 
+    def upload_job_input(
+        self,
+        job_id: str,
+        file_path: str | Path,
+    ) -> dict[str, Any]:
+        clean_id = str(
+            job_id or ""
+        ).strip()
+
+        if not clean_id:
+            raise ComputeNodeConnectionError(
+                "Job-ID fehlt."
+            )
+
+        source = Path(
+            file_path
+        )
+
+        if not source.is_file():
+            raise ComputeNodeConnectionError(
+                "Eingabedatei nicht gefunden: "
+                f"{source}"
+            )
+
+        parsed = urllib.parse.urlparse(
+            self.config.base_url
+        )
+
+        if parsed.scheme not in {
+            "http",
+            "https",
+        }:
+            raise ComputeNodeConnectionError(
+                "Ungültige Compute-Node-Adresse."
+            )
+
+        host = parsed.hostname
+
+        if not host:
+            raise ComputeNodeConnectionError(
+                "Compute-Node-Host fehlt."
+            )
+
+        if parsed.port is not None:
+            port = parsed.port
+        elif parsed.scheme == "https":
+            port = 443
+        else:
+            port = 80
+
+        request_path = (
+            parsed.path.rstrip("/")
+            + f"/jobs/{clean_id}/input"
+        )
+
+        headers = {
+            "Content-Type": (
+                "application/octet-stream"
+            ),
+            "Content-Length": str(
+                source.stat().st_size
+            ),
+            "X-Input-Filename": (
+                source.name
+            ),
+        }
+
+        if self.config.api_token:
+            headers["Authorization"] = (
+                "Bearer "
+                + self.config.api_token
+            )
+
+        connection_class = (
+            http.client.HTTPSConnection
+            if parsed.scheme == "https"
+            else http.client.HTTPConnection
+        )
+
+        connection = connection_class(
+            host,
+            port,
+            timeout=max(
+                self.timeout,
+                60.0,
+            ),
+        )
+
+        try:
+            connection.putrequest(
+                "POST",
+                request_path,
+            )
+
+            for key, value in headers.items():
+                connection.putheader(
+                    key,
+                    value,
+                )
+
+            connection.endheaders()
+
+            with source.open("rb") as handle:
+                while True:
+                    chunk = handle.read(
+                        1024 * 1024
+                    )
+
+                    if not chunk:
+                        break
+
+                    connection.send(
+                        chunk
+                    )
+
+            response = connection.getresponse()
+            payload = response.read()
+
+            if response.status < 200 or response.status >= 300:
+                try:
+                    detail = json.loads(
+                        payload.decode(
+                            "utf-8"
+                        )
+                    )
+                    message = str(
+                        detail.get("detail")
+                        or detail.get("error")
+                        or (
+                            f"HTTP {response.status}"
+                        )
+                    )
+                except (
+                    UnicodeDecodeError,
+                    json.JSONDecodeError,
+                    AttributeError,
+                ):
+                    message = (
+                        f"HTTP {response.status}: "
+                        f"{response.reason}"
+                    )
+
+                raise ComputeNodeConnectionError(
+                    message
+                )
+
+        except (
+            OSError,
+            TimeoutError,
+            http.client.HTTPException,
+        ) as error:
+            raise ComputeNodeConnectionError(
+                "Eingabedatei konnte nicht "
+                "zum Windows Compute Node "
+                "übertragen werden: "
+                f"{error}"
+            ) from error
+
+        finally:
+            connection.close()
+
+        if not payload:
+            return {}
+
+        try:
+            result = json.loads(
+                payload.decode("utf-8")
+            )
+        except (
+            UnicodeDecodeError,
+            json.JSONDecodeError,
+        ) as error:
+            raise ComputeNodeConnectionError(
+                "Compute Node hat nach dem "
+                "Datei-Upload keine gültige "
+                "JSON-Antwort geliefert."
+            ) from error
+
+        if not isinstance(
+            result,
+            dict,
+        ):
+            raise ComputeNodeConnectionError(
+                "Compute Node hat nach dem "
+                "Datei-Upload ein ungültiges "
+                "Ergebnis geliefert."
+            )
+
+        return result
+
+
     def execute_job(
         self,
         job_id: str,
@@ -355,6 +547,103 @@ class ComputeNodeClient:
             "POST",
             f"/jobs/{clean_id}/execute",
         )
+
+    def execute_job_and_wait(
+        self,
+        job_id: str,
+        *,
+        poll_interval: float = 5.0,
+        max_wait_seconds: float | None = None,
+    ) -> dict[str, Any]:
+        """Execute a job and wait for its real terminal status.
+
+        A timeout of the synchronous execute request does not imply that
+        the remote job failed. If the job is still reachable on the
+        Compute Node, its status is polled until it completes, fails or
+        is cancelled.
+        """
+
+        import time
+
+        clean_id = str(
+            job_id or ""
+        ).strip()
+
+        if not clean_id:
+            raise ComputeNodeConnectionError(
+                "Job-ID fehlt."
+            )
+
+        interval = max(
+            0.1,
+            float(poll_interval),
+        )
+
+        started_at = time.monotonic()
+        execute_error = None
+        current = None
+
+        try:
+            current = self.execute_job(
+                clean_id
+            )
+        except ComputeNodeConnectionError as error:
+            execute_error = error
+
+        terminal_statuses = {
+            "completed",
+            "failed",
+            "cancelled",
+        }
+
+        if isinstance(
+            current,
+            dict,
+        ):
+            status = str(
+                current.get("status")
+                or ""
+            ).strip().lower()
+
+            if status in terminal_statuses:
+                return current
+
+        while True:
+            try:
+                current = self.job(
+                    clean_id
+                )
+            except ComputeNodeConnectionError:
+                if execute_error is not None:
+                    raise execute_error
+                raise
+
+            status = str(
+                current.get("status")
+                or ""
+            ).strip().lower()
+
+            if status in terminal_statuses:
+                return current
+
+            if max_wait_seconds is not None:
+                elapsed = (
+                    time.monotonic()
+                    - started_at
+                )
+
+                if elapsed >= float(
+                    max_wait_seconds
+                ):
+                    raise ComputeNodeConnectionError(
+                        "Wartezeit auf Compute-Node-Job "
+                        "wurde überschritten. Der Remote-Job "
+                        "wurde dadurch nicht abgebrochen."
+                    )
+
+            time.sleep(
+                interval
+            )
 
     def cancel_job(
         self,

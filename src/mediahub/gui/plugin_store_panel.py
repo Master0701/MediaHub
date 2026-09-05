@@ -35,7 +35,7 @@ from src.mediahub.services.ai_node_provisioning_service import (
     AINodeProvisioningError,
     AINodeProvisioningService,
 )
-from src.mediahub.services.ai_node_service import AINodeService
+from src.mediahub.services.ai_node_service import AINodeConnectionError, AINodeService
 from src.mediahub.services.ai_plugin_catalog_service import (
     AIPluginCatalogEntry,
     AIPluginCatalogService,
@@ -935,7 +935,39 @@ class PluginStorePanel(QWidget):
                     or "?"
                 )
 
+                loaded = bool(
+                    installed.get(
+                        "loaded",
+                        False,
+                    )
+                )
+                load_error = installed.get(
+                    "error"
+                )
+
                 if (
+                    not loaded
+                    and load_error
+                ):
+                    state = (
+                        "Installiert – Ladefehler: "
+                        f"v{installed_version}"
+                    )
+
+                    if (
+                        self._version_parts(
+                            plugin.version
+                        )
+                        > self._version_parts(
+                            installed_version
+                        )
+                    ):
+                        state += (
+                            " · Update verfügbar: "
+                            f"v{plugin.version}"
+                        )
+
+                elif (
                     self._version_parts(
                         plugin.version
                     )
@@ -1098,18 +1130,40 @@ class PluginStorePanel(QWidget):
         ]
 
         if installed:
+            installed_version = str(
+                installed.get("version")
+                or "unbekannt"
+            )
+            loaded = bool(
+                installed.get(
+                    "loaded",
+                    False,
+                )
+            )
+            load_error = installed.get(
+                "error"
+            )
+
             lines.extend(
                 [
                     "",
                     "Auf diesem Node installiert:",
-                    str(
-                        installed.get(
-                            "version"
-                        )
-                        or "unbekannt"
+                    installed_version,
+                    (
+                        "Status: Geladen"
+                        if loaded
+                        else "Status: Ladefehler"
                     ),
                 ]
             )
+
+            if load_error:
+                lines.extend(
+                    [
+                        "",
+                        f"Fehler: {load_error}",
+                    ]
+                )
         else:
             lines.extend(
                 [
@@ -2073,11 +2127,50 @@ class PluginStorePanel(QWidget):
                 timeout=4.0,
             )
             health = service.health()
+
             if health.online:
-                service.list_plugins()
+                try:
+                    service.list_plugins()
+                except AINodeConnectionError as error:
+                    message = str(error)
+                    if "HTTP 401" in message or "HTTP 403" in message:
+                        QMessageBox.warning(
+                            self,
+                            "AI-Node Authentifizierung",
+                            "Der Raspberry-Pi-AI-Node ist erreichbar, aber "
+                            "die Authentifizierung ist fehlgeschlagen.\n\n"
+                            f"{message}\n\n"
+                            "Bitte das gespeicherte AI-Node-API-Token in den "
+                            "globalen Einstellungen prüfen. Der AI-Node wird "
+                            "nicht automatisch neu installiert.",
+                        )
+                        return False
+                    raise
+
                 return True
-        except Exception:
-            pass
+
+        except AINodeConnectionError as error:
+            message = str(error)
+            if "HTTP 401" in message or "HTTP 403" in message:
+                QMessageBox.warning(
+                    self,
+                    "AI-Node Authentifizierung",
+                    "Der Raspberry-Pi-AI-Node ist erreichbar, aber "
+                    "die Authentifizierung ist fehlgeschlagen.\n\n"
+                    f"{message}\n\n"
+                    "Bitte das gespeicherte AI-Node-API-Token in den "
+                    "globalen Einstellungen prüfen. Der AI-Node wird "
+                    "nicht automatisch neu installiert.",
+                )
+                return False
+        except Exception as error:
+            QMessageBox.warning(
+                self,
+                "AI-Node prüfen",
+                "Beim Prüfen des Raspberry-Pi-AI-Nodes ist ein "
+                f"unerwarteter Fehler aufgetreten:\n{error}",
+            )
+            return False
 
         host = str(ai.get("node_host") or "").strip()
         if not host:

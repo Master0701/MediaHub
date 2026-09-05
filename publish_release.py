@@ -267,9 +267,34 @@ def current_branch() -> str:
 
 
 def tag_exists(tag: str) -> bool:
-    result = subprocess.run(["git", "tag", "--list", tag], cwd=ROOT, check=True,
-                            capture_output=True, text=True, encoding="utf-8", errors="replace")
-    return bool(result.stdout.strip())
+    local_result = subprocess.run(
+        ["git", "tag", "--list", tag],
+        cwd=ROOT,
+        check=True,
+        capture_output=True,
+        text=True,
+        encoding="utf-8",
+        errors="replace",
+    )
+    if local_result.stdout.strip():
+        return True
+
+    remote_result = subprocess.run(
+        [
+            "git",
+            "ls-remote",
+            "--tags",
+            "origin",
+            f"refs/tags/{tag}",
+        ],
+        cwd=ROOT,
+        check=True,
+        capture_output=True,
+        text=True,
+        encoding="utf-8",
+        errors="replace",
+    )
+    return bool(remote_result.stdout.strip())
 
 
 def main() -> int:
