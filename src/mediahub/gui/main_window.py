@@ -3,9 +3,10 @@ import platform
 import re
 import shutil
 import sqlite3
+import threading
 from pathlib import Path
 
-from PySide6.QtCore import Qt, QUrl, Signal, Slot
+from PySide6.QtCore import Qt, QUrl, QTimer, Signal, Slot
 from PySide6.QtGui import QAction, QDesktopServices, QKeySequence
 from PySide6.QtWidgets import (
     QApplication,
@@ -70,6 +71,7 @@ from src.mediahub.plugins.plugin_api import MediaHubPluginAPI
 from src.mediahub.plugins.web_setup_wizard import WebSetupWizardService
 from src.mediahub.services.archive_service import ArchiveService
 from src.mediahub.services.download_service import DownloadService
+from src.mediahub.services.ai_node_service import AINodeService
 from src.mediahub.services.node_worker_provider import NodeWorkerProvider
 from src.mediahub.services.playlist_service import PlaylistService
 from src.mediahub.services.tool_service import ToolService
@@ -716,13 +718,27 @@ class MainWindow(QMainWindow):
             ),
             tool_service=self.tool_service,
         )
-        node_worker_provider = NodeWorkerProvider(
+        self.node_worker_provider = NodeWorkerProvider(
             self.base_dir
         )
         plugin_api.register_capability(
             "speech_to_text",
-            node_worker_provider,
+            self.node_worker_provider,
             owner_id="mediahub.core.node_workers",
+        )
+
+        self._compute_node_heartbeat_running = False
+
+        self._compute_node_heartbeat_timer = QTimer(self)
+        self._compute_node_heartbeat_timer.setInterval(10_000)
+        self._compute_node_heartbeat_timer.timeout.connect(
+            self._send_compute_node_heartbeats
+        )
+        self._compute_node_heartbeat_timer.start()
+
+        QTimer.singleShot(
+            0,
+            self._send_compute_node_heartbeats,
         )
 
         self.plugin_center = PluginCenter(
@@ -2021,7 +2037,56 @@ class MainWindow(QMainWindow):
             lines.append(f"{prefix} {row['name']}: {row['detail']}")
         return lines
 
+    def _send_compute_node_heartbeats(self) -> None:
+        if self._compute_node_heartbeat_running:
+            return
+
+        self._compute_node_heartbeat_running = True
+
+        thread = threading.Thread(
+            target=self._compute_node_heartbeat_worker,
+            name="mediahub-compute-node-heartbeat",
+            daemon=True,
+        )
+        thread.start()
+
+    def _compute_node_heartbeat_worker(self) -> None:
+        try:
+            service = (
+                self.node_worker_provider.compute_service
+            )
+
+            for node in service.enabled_nodes():
+                try:
+                    client = service.client_for(
+                        node,
+                        timeout=2.0,
+                    )
+                    client.heartbeat()
+                except Exception:
+                    continue
+            # Raspberry-Pi-AI-Node Heartbeat
+            try:
+                settings = self.node_worker_provider.settings_service.load()
+                if isinstance(settings, dict):
+                    ai_service = AINodeService.from_settings(
+                        settings,
+                        timeout=2.0,
+                    )
+                    if ai_service.config.enabled:
+                        ai_service.heartbeat()
+            except Exception:
+                pass
+        finally:
+            self._compute_node_heartbeat_running = False
+
     def closeEvent(self, event):
+        if hasattr(
+            self,
+            "_compute_node_heartbeat_timer",
+        ):
+            self._compute_node_heartbeat_timer.stop()
+
         if self.plugin_center is not None:
             self.plugin_center.shutdown_plugins()
         super().closeEvent(event)

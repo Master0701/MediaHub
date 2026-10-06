@@ -191,6 +191,14 @@ class ComputeNodeClient:
             raw=data,
         )
 
+    def heartbeat(self) -> dict[str, Any]:
+        """Tell the Compute Node that MediaHub is connected."""
+
+        return self._request_json(
+            "POST",
+            "/activity/heartbeat",
+        )
+
     def identity(self) -> dict[str, Any]:
         return self._request_json(
             "GET",

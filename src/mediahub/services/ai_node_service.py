@@ -128,6 +128,13 @@ class AINodeService:
             raw=data,
         )
 
+    def heartbeat(self) -> dict[str, Any]:
+        """Meldet dem AI-Node, dass MediaHub weiterhin verbunden ist."""
+        return self._request_json(
+            "POST",
+            "/activity/heartbeat",
+        )
+
     def list_plugins(self) -> list[dict[str, Any]]:
         data = self._request_json("GET", "/plugins")
         plugins = data.get("plugins", [])

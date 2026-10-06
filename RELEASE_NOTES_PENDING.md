@@ -1,9 +1,3 @@
-# MediaHub v1.0.23
-
-MediaHub ist ein lokales PySide6-Programm zum Verwalten von YouTube-Kanälen, Playlists, Video-Downloads, Plex-Importen und separat installierbaren Erweiterungen.
-
-## Neu und verbessert in v1.0.23
-
 ﻿# MediaHub – AI-Node- und AI-Plugin-Integration
 
 ## Änderungen
@@ -33,12 +27,3 @@ MediaHub ist ein lokales PySide6-Programm zum Verwalten von YouTube-Kanälen, Pl
 - Installiertes Plugin wird anschließend korrekt in MediaHub erkannt.
 - Installiertes Plugin wird auf der AI-Node-Statusseite angezeigt.
 - Erneute Katalogaktualisierung erzeugt keinen doppelten Plugin-Eintrag.
-
-Die vollständige Versionshistorie steht in [`CHANGELOG.md`](CHANGELOG.md).
-
-## Start aus dem Quellcode
-
-```powershell
-python -m pip install -r requirements.txt
-python main.py
-```

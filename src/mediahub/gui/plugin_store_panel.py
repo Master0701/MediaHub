@@ -268,6 +268,7 @@ class PluginStorePanel(QWidget):
                 "Deaktiviert",
                 "Geladen",
                 "Nicht geladen",
+                "Nicht installiert",
                 "Fehler",
             ]
         )
@@ -321,7 +322,7 @@ class PluginStorePanel(QWidget):
         )
 
         self.btn_ai_install.clicked.connect(
-            self.install_ai_plugin_package
+            self.install_selected_ai_plugin
         )
         self.btn_ai_refresh.clicked.connect(self.load_ai_plugins)
         self.btn_ai_enable.clicked.connect(self.enable_selected_ai_plugin)
@@ -1906,18 +1907,147 @@ class PluginStorePanel(QWidget):
         try:
             plugins = self.ai_catalog_service.fetch_catalog()
         except Exception as error:
+            self.ai_catalog_plugins = []
             self.ai_catalog_status.setText(
                 f"AI-Plugin-Store: Katalog konnte nicht geladen werden: {error}"
             )
             return
-        if not plugins:
+
+        self.ai_catalog_plugins = [
+            plugin
+            for plugin in plugins
+            if plugin.supports_target("raspberry_pi")
+        ]
+
+        if not self.ai_catalog_plugins:
             self.ai_catalog_status.setText(
                 "AI-Plugin-Store: Noch keine AI-Plugins verfügbar. "
                 "Sobald AI-Plugins veröffentlicht werden, erscheinen sie automatisch hier."
             )
+        else:
+            self.ai_catalog_status.setText(
+                f"AI-Plugin-Store: {len(self.ai_catalog_plugins)} Plugin(s) verfügbar."
+            )
+
+        self.load_ai_plugins()
+    def install_selected_ai_plugin(self):
+        row = self.ai_list.currentRow()
+
+        plugins = getattr(
+            self,
+            "_filtered_ai_plugins",
+            self.ai_plugins,
+        )
+
+        if 0 <= row < len(plugins):
+            plugin = plugins[row]
+
+            if (
+                not bool(plugin.get("_installed", True))
+                and plugin.get("_catalog_entry") is not None
+            ):
+                self.install_selected_ai_catalog_plugin()
+                return
+
+        self.install_ai_plugin_package()
+
+    def install_selected_ai_catalog_plugin(self):
+        row = self.ai_list.currentRow()
+
+        plugins = getattr(
+            self,
+            "_filtered_ai_plugins",
+            self.ai_plugins,
+        )
+
+        if not 0 <= row < len(plugins):
+            QMessageBox.information(
+                self,
+                "AI-Plugin installieren",
+                "Bitte zuerst ein AI-Plugin aus dem "
+                "Katalog auswählen.",
+            )
             return
-        self.ai_catalog_status.setText(
-            f"AI-Plugin-Store: {len(plugins)} Plugin(s) verfügbar."
+
+        plugin = plugins[row]
+
+        if bool(plugin.get("_installed", True)):
+            QMessageBox.information(
+                self,
+                "AI-Plugin installieren",
+                "Dieses AI-Plugin ist bereits auf dem "
+                "AI-Node installiert.",
+            )
+            return
+
+        catalog_entry = plugin.get("_catalog_entry")
+
+        if catalog_entry is None:
+            QMessageBox.warning(
+                self,
+                "AI-Plugin installieren",
+                "Für dieses AI-Plugin ist kein gültiger "
+                "Katalogeintrag verfügbar.",
+            )
+            return
+
+        if not catalog_entry.supports_target(
+            "raspberry_pi"
+        ):
+            QMessageBox.warning(
+                self,
+                "AI-Plugin installieren",
+                "Dieses Plugin ist nicht für den "
+                "Raspberry-Pi-AI-Node vorgesehen.",
+            )
+            return
+
+        package_asset = str(
+            catalog_entry.package_asset
+        ).strip()
+
+        if not package_asset:
+            QMessageBox.warning(
+                self,
+                "AI-Plugin installieren",
+                "Im AI-Plugin-Katalog fehlt das "
+                "Paket-Asset.",
+            )
+            return
+
+        temp_dir = (
+            Path(tempfile.gettempdir())
+            / "mediahub-ai-plugin-store"
+        )
+        temp_dir.mkdir(
+            parents=True,
+            exist_ok=True,
+        )
+
+        package_path = temp_dir / Path(
+            package_asset
+        ).name
+
+        try:
+            downloaded_path, _ = (
+                self.ai_catalog_service
+                .download_compute_package(
+                    catalog_entry,
+                    str(package_path),
+                )
+            )
+        except Exception as error:
+            QMessageBox.warning(
+                self,
+                "AI-Plugin herunterladen",
+                "Das AI-Plugin konnte nicht sicher "
+                "heruntergeladen werden.\n\n"
+                f"{error}",
+            )
+            return
+
+        self._install_ai_plugin_path(
+            downloaded_path
         )
 
     def install_ai_plugin_package(self):
@@ -1930,8 +2060,14 @@ class PluginStorePanel(QWidget):
         if not package_path:
             return
 
+        self._install_ai_plugin_path(package_path)
+
+    def _install_ai_plugin_path(
+        self,
+        package_path: str | Path,
+    ) -> bool:
         if not self._ensure_ai_node_ready_for_install():
-            return
+            return False
 
         service = self._ai_service()
 
@@ -1943,7 +2079,7 @@ class PluginStorePanel(QWidget):
                 "AI-Plugin prüfen",
                 str(error),
             )
-            return
+            return False
 
         plan_id = str(response.get("plan_id") or "")
         package = response.get("package", {})
@@ -1958,16 +2094,17 @@ class PluginStorePanel(QWidget):
             QMessageBox.warning(
                 self,
                 "AI-Plugin prüfen",
-                "Der AI-Node hat keinen gültigen Installationsplan zurückgegeben.",
+                "Der AI-Node hat keinen gültigen "
+                "Installationsplan zurückgegeben.",
             )
-            return
+            return False
 
         if not self._confirm_plan_dialog(package, plan):
             try:
                 service.cancel_install_plan(plan_id)
             except Exception:
                 pass
-            return
+            return False
 
         actions = (
             plan.get("actions", [])
@@ -1979,37 +2116,47 @@ class PluginStorePanel(QWidget):
             execute_answer = QMessageBox.question(
                 self,
                 "Voraussetzungen installieren",
-                "Der Installationsplan enthält noch Voraussetzungen.\n\n"
-                "MediaHub darf jetzt ausschließlich freigegebene "
-                "Python-Pakete auf dem AI-Node installieren. "
-                "Systemtools und weitere AI-Plugins werden nicht automatisch installiert.\n\n"
+                "Der Installationsplan enthält noch "
+                "Voraussetzungen.\n\n"
+                "MediaHub darf jetzt ausschließlich "
+                "freigegebene Python-Pakete auf dem "
+                "AI-Node installieren. Systemtools und "
+                "weitere AI-Plugins werden nicht "
+                "automatisch installiert.\n\n"
                 "Freigegebene Schritte jetzt ausführen?",
             )
-            if execute_answer != QMessageBox.StandardButton.Yes:
+
+            if (
+                execute_answer
+                != QMessageBox.StandardButton.Yes
+            ):
                 try:
                     service.cancel_install_plan(plan_id)
                 except Exception:
                     pass
-                return
+                return False
 
             try:
-                response = service.execute_install_plan(plan_id)
+                response = service.execute_install_plan(
+                    plan_id
+                )
             except Exception as error:
                 QMessageBox.warning(
                     self,
                     "Voraussetzungen installieren",
                     str(error),
                 )
-                return
+                return False
 
             plan = response.get("plan", {})
+
             if not self._plan_ready(plan):
                 QMessageBox.warning(
                     self,
                     "AI-Plugin noch nicht installierbar",
                     self._format_pending_plan(plan),
                 )
-                return
+                return False
 
         try:
             result = service.confirm_install_plan(
@@ -2022,20 +2169,29 @@ class PluginStorePanel(QWidget):
                 "AI-Plugin installieren",
                 str(error),
             )
-            return
+            return False
 
         plugin = result.get("plugin", {})
+
         name = (
-            str(plugin.get("name") or plugin.get("id") or "AI-Plugin")
+            str(
+                plugin.get("name")
+                or plugin.get("id")
+                or "AI-Plugin"
+            )
             if isinstance(plugin, dict)
             else "AI-Plugin"
         )
+
         QMessageBox.information(
             self,
             "AI-Plugin installieren",
-            f"{name} wurde erfolgreich auf dem AI-Node installiert.",
+            f"{name} wurde erfolgreich auf dem "
+            "AI-Node installiert.",
         )
+
         self.load_ai_plugins()
+        return True
 
     def _confirm_plan_dialog(
         self,
@@ -2487,7 +2643,7 @@ class PluginStorePanel(QWidget):
         )
 
         try:
-            self.ai_plugins = service.list_plugins()
+            installed_plugins = service.list_plugins()
         except Exception as error:
             self.ai_plugins = []
             self._filtered_ai_plugins = []
@@ -2497,8 +2653,59 @@ class PluginStorePanel(QWidget):
             )
             return
 
-        self.apply_ai_filters()
+        installed_by_id = {}
 
+        for plugin in installed_plugins:
+            if not isinstance(plugin, dict):
+                continue
+
+            plugin_data = dict(plugin)
+            plugin_id = str(
+                plugin_data.get("id")
+                or plugin_data.get("plugin_id")
+                or ""
+            ).strip()
+
+            if not plugin_id:
+                continue
+
+            plugin_data["_installed"] = True
+            installed_by_id[plugin_id] = plugin_data
+
+        combined_plugins = list(installed_by_id.values())
+
+        for catalog_plugin in getattr(
+            self,
+            "ai_catalog_plugins",
+            [],
+        ):
+            plugin_id = str(catalog_plugin.plugin_id).strip()
+
+            if not plugin_id:
+                continue
+
+            if plugin_id in installed_by_id:
+                installed_by_id[plugin_id]["_catalog_entry"] = catalog_plugin
+                continue
+
+            combined_plugins.append(
+                {
+                    "id": plugin_id,
+                    "plugin_id": plugin_id,
+                    "name": catalog_plugin.name,
+                    "version": catalog_plugin.version,
+                    "type": "AI-Node-Plugin",
+                    "enabled": False,
+                    "loaded": False,
+                    "error": None,
+                    "description": catalog_plugin.description,
+                    "_installed": False,
+                    "_catalog_entry": catalog_plugin,
+                }
+            )
+
+        self.ai_plugins = combined_plugins
+        self.apply_ai_filters()
     def apply_ai_filters(self):
         search = self.ai_search.text().strip().lower()
         state_filter = self.ai_state_filter.currentText()
@@ -2522,6 +2729,8 @@ class PluginStorePanel(QWidget):
                 or plugin.get("plugin_type")
                 or "unbekannt"
             )
+
+            installed = bool(plugin.get("_installed", True))
             enabled = bool(plugin.get("enabled", False))
             loaded = bool(plugin.get("loaded", False))
             error = plugin.get("error")
@@ -2532,6 +2741,7 @@ class PluginStorePanel(QWidget):
                     name,
                     version,
                     plugin_type,
+                    str(plugin.get("description") or ""),
                     str(error or ""),
                 ]
             ).lower()
@@ -2539,15 +2749,32 @@ class PluginStorePanel(QWidget):
             if search and search not in searchable:
                 continue
 
-            if state_filter == "Aktiviert" and not enabled:
+            if state_filter == "Aktiviert" and (
+                not installed or not enabled
+            ):
                 continue
-            if state_filter == "Deaktiviert" and enabled:
+
+            if state_filter == "Deaktiviert" and (
+                not installed or enabled
+            ):
                 continue
-            if state_filter == "Geladen" and not loaded:
+
+            if state_filter == "Geladen" and (
+                not installed or not loaded
+            ):
                 continue
-            if state_filter == "Nicht geladen" and loaded:
+
+            if state_filter == "Nicht geladen" and (
+                not installed or loaded
+            ):
                 continue
-            if state_filter == "Fehler" and not error:
+
+            if state_filter == "Nicht installiert" and installed:
+                continue
+
+            if state_filter == "Fehler" and (
+                not installed or not error
+            ):
                 continue
 
             visible_plugins.append(plugin)
@@ -2562,16 +2789,22 @@ class PluginStorePanel(QWidget):
             )
             name = str(plugin.get("name") or plugin_id)
             version = str(plugin.get("version") or "unbekannt")
+
+            installed = bool(plugin.get("_installed", True))
             enabled = bool(plugin.get("enabled", False))
             loaded = bool(plugin.get("loaded", False))
             error = plugin.get("error")
 
-            states = [
-                "aktiviert" if enabled else "deaktiviert",
-                "geladen" if loaded else "nicht geladen",
-            ]
-            if error:
-                states.append("Fehler")
+            if installed:
+                states = [
+                    "aktiviert" if enabled else "deaktiviert",
+                    "geladen" if loaded else "nicht geladen",
+                ]
+
+                if error:
+                    states.append("Fehler")
+            else:
+                states = ["nicht installiert"]
 
             item = QListWidgetItem(
                 f"{name}  v{version} – {', '.join(states)}"
@@ -2585,8 +2818,10 @@ class PluginStorePanel(QWidget):
         total = len(self.ai_plugins)
         visible = len(visible_plugins)
         current_status = self.ai_status.text().split(" | ")[0]
+
         self.ai_status.setText(
-            f"{current_status} | {visible} von {total} AI-Plugin(s) angezeigt"
+            f"{current_status} | "
+            f"{visible} von {total} AI-Plugin(s) angezeigt"
         )
 
         if visible_plugins:
@@ -2598,25 +2833,33 @@ class PluginStorePanel(QWidget):
         else:
             self.ai_details.setPlainText(
                 "Der AI-Node ist online, aber es sind noch "
-                "keine AI-Plugins installiert."
+                "keine AI-Plugins installiert oder im Katalog verfügbar."
             )
-
     def _show_ai_plugin(self, row: int):
         plugins = getattr(
             self,
             "_filtered_ai_plugins",
             self.ai_plugins,
         )
+
         if not 0 <= row < len(plugins):
             self.ai_details.clear()
             self._set_ai_action_buttons(False)
+            self.btn_ai_install.setText(
+                "AI-Plugin installieren"
+            )
+            self.btn_ai_install.setToolTip(
+                "Wählt ein AI-Plugin-Paket aus und erstellt "
+                "auf dem Pi einen Installationsplan."
+            )
             return
 
         plugin = plugins[row]
-        self._set_ai_action_buttons(True)
+
+        installed = bool(plugin.get("_installed", True))
         enabled = bool(plugin.get("enabled", False))
-        self.btn_ai_enable.setEnabled(not enabled)
-        self.btn_ai_disable.setEnabled(enabled)
+        loaded = bool(plugin.get("loaded", False))
+
         plugin_id = str(
             plugin.get("id")
             or plugin.get("plugin_id")
@@ -2629,20 +2872,83 @@ class PluginStorePanel(QWidget):
             or plugin.get("plugin_type")
             or "unbekannt"
         )
-        enabled = bool(plugin.get("enabled", False))
-        loaded = bool(plugin.get("loaded", False))
 
-        lines = [
-            name,
-            f"Plugin-ID: {plugin_id}",
-            f"Version: {version}",
-            f"Typ: {plugin_type}",
-            f"Aktiviert: {'Ja' if enabled else 'Nein'}",
-            f"Geladen: {'Ja' if loaded else 'Nein'}",
-        ]
+        catalog_entry = plugin.get("_catalog_entry")
+
+        if installed:
+            self._set_ai_action_buttons(True)
+            self.btn_ai_enable.setEnabled(not enabled)
+            self.btn_ai_disable.setEnabled(enabled)
+
+            self.btn_ai_install.setText(
+                "AI-Plugin installieren"
+            )
+            self.btn_ai_install.setToolTip(
+                "Wählt ein AI-Plugin-Paket aus und erstellt "
+                "auf dem Pi einen Installationsplan."
+            )
+
+            lines = [
+                name,
+                f"Plugin-ID: {plugin_id}",
+                f"Version: {version}",
+                f"Typ: {plugin_type}",
+                "Status: Installiert",
+                f"Aktiviert: {'Ja' if enabled else 'Nein'}",
+                f"Geladen: {'Ja' if loaded else 'Nein'}",
+                "Ziel: Raspberry Pi AI-Node",
+            ]
+        else:
+            self._set_ai_action_buttons(False)
+
+            if catalog_entry is not None:
+                self.btn_ai_install.setText(
+                    "Aus Katalog installieren"
+                )
+                self.btn_ai_install.setToolTip(
+                    "Lädt das ausgewählte AI-Plugin aus dem "
+                    "Katalog, prüft SHA-256 und erstellt "
+                    "anschließend auf dem Pi den "
+                    "Installationsplan."
+                )
+            else:
+                self.btn_ai_install.setText(
+                    "AI-Plugin installieren"
+                )
+                self.btn_ai_install.setToolTip(
+                    "Wählt ein AI-Plugin-Paket aus und erstellt "
+                    "auf dem Pi einen Installationsplan."
+                )
+
+            lines = [
+                name,
+                f"Plugin-ID: {plugin_id}",
+                f"Version: {version}",
+                f"Typ: {plugin_type}",
+                "Status: Nicht installiert",
+                "Ziel: Raspberry Pi AI-Node",
+            ]
+
+            description = str(
+                plugin.get("description")
+                or ""
+            ).strip()
+
+            if description:
+                lines.extend(
+                    [
+                        "",
+                        description,
+                    ]
+                )
 
         error = plugin.get("error")
         if error:
-            lines.extend(["", f"Fehler: {error}"])
+            lines.extend(
+                [
+                    "",
+                    f"Fehler: {error}",
+                ]
+            )
 
         self.ai_details.setPlainText("\n".join(lines))
