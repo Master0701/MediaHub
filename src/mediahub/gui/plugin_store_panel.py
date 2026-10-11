@@ -1,8 +1,9 @@
-from __future__ import annotations
+﻿from __future__ import annotations
 
 import tempfile
 import webbrowser
 from pathlib import Path
+from datetime import datetime, timezone
 
 from PySide6.QtCore import Qt
 from PySide6.QtWidgets import (
@@ -107,6 +108,7 @@ class PluginStorePanel(QWidget):
         self.mediahub_tab = QWidget()
         self.ai_tab = QWidget()
         self.compute_tab = QWidget()
+        self.backups_tab = QWidget()
 
         self.tabs.addTab(
             self.mediahub_tab,
@@ -121,6 +123,11 @@ class PluginStorePanel(QWidget):
             "Windows Compute Node",
         )
 
+        self.tabs.addTab(
+            self.backups_tab,
+            "Backups & Wiederherstellung",
+        )
+
         layout.addWidget(
             self.tabs,
             1,
@@ -129,10 +136,292 @@ class PluginStorePanel(QWidget):
         self._build_mediahub_tab()
         self._build_ai_tab()
         self._build_compute_tab()
+        self._build_backups_tab()
 
         self.tabs.currentChanged.connect(
             self._tab_changed
         )
+
+    def _build_backups_tab(self):
+        layout = QVBoxLayout(self.backups_tab)
+
+        self.backup_status = QLabel(
+            "Raspberry-Pi-AI-Node: Backups werden beim Öffnen geladen. "
+            "Windows Compute Node wird später ergänzt."
+        )
+        self.backup_status.setWordWrap(True)
+        layout.addWidget(self.backup_status)
+
+        selector_row = QHBoxLayout()
+        selector_row.addWidget(QLabel("Plugin:"))
+        self.backup_plugin_selector = QComboBox()
+        self.backup_plugin_selector.currentIndexChanged.connect(
+            self.load_selected_plugin_backups
+        )
+        selector_row.addWidget(self.backup_plugin_selector, 1)
+        layout.addLayout(selector_row)
+
+        self.backup_list = QListWidget()
+        self.backup_list.currentRowChanged.connect(
+            self._update_backup_buttons
+        )
+        layout.addWidget(self.backup_list, 2)
+
+        self.backup_details = QTextEdit()
+        self.backup_details.setReadOnly(True)
+        self.backup_list.currentRowChanged.connect(
+            self._show_backup_details
+        )
+        layout.addWidget(self.backup_details, 1)
+
+        buttons = QHBoxLayout()
+        self.btn_backup_refresh = configure_button(
+            QPushButton("Aktualisieren"),
+            "Lädt Plugins und Backups erneut vom Raspberry-Pi-AI-Node.",
+        )
+        self.btn_backup_restore = configure_button(
+            QPushButton("Wiederherstellen"),
+            "Ersetzt nach Bestätigung das Plugin durch die Sicherung.",
+        )
+        self.btn_backup_delete = configure_button(
+            QPushButton("Backup löschen"),
+            "Löscht nach Bestätigung die ausgewählte Sicherung endgültig.",
+        )
+        self.btn_backup_restore.setEnabled(False)
+        self.btn_backup_delete.setEnabled(False)
+        self.btn_backup_refresh.clicked.connect(self.load_backup_plugins)
+        self.btn_backup_restore.clicked.connect(self.restore_selected_backup)
+        self.btn_backup_delete.clicked.connect(self.delete_selected_backup)
+        buttons.addWidget(self.btn_backup_refresh)
+        buttons.addStretch(1)
+        buttons.addWidget(self.btn_backup_restore)
+        buttons.addWidget(self.btn_backup_delete)
+        layout.addLayout(buttons)
+
+    def load_backup_plugins(self, *_):
+        previous_id = self.backup_plugin_selector.currentData()
+        self.backup_plugin_selector.blockSignals(True)
+        self.backup_plugin_selector.clear()
+        self.backup_list.clear()
+        self.backup_details.clear()
+        self._update_backup_buttons()
+
+        try:
+            service = self._ai_service()
+            health = service.health()
+            if not health.online:
+                raise AINodeConnectionError(health.message)
+
+            plugins = service.list_plugins()
+            if not isinstance(plugins, list):
+                raise ValueError("Ungültige Plugin-Liste vom AI-Node.")
+
+            backup_ids = service.list_backup_plugin_ids()
+        except (AINodeConnectionError, RuntimeError, OSError, ValueError) as error:
+            self.backup_status.setText(f"Backup-Auswahl nicht verfügbar: {error}")
+            self.backup_plugin_selector.blockSignals(False)
+            return
+
+        installed_ids = set()
+
+        for plugin in plugins:
+            if not isinstance(plugin, dict):
+                continue
+            plugin_id = str(
+                plugin.get("id") or plugin.get("plugin_id") or ""
+            ).strip()
+            if not plugin_id or plugin_id in installed_ids:
+                continue
+
+            installed_ids.add(plugin_id)
+            name = str(plugin.get("name") or plugin_id)
+            self.backup_plugin_selector.addItem(
+                f"{name} ({plugin_id})", plugin_id
+            )
+
+        for plugin_id in backup_ids:
+            plugin_id = plugin_id.strip()
+            if not plugin_id or plugin_id in installed_ids:
+                continue
+
+            self.backup_plugin_selector.addItem(
+                f"{plugin_id} (nicht installiert)", plugin_id
+            )
+
+        if previous_id:
+            for index in range(self.backup_plugin_selector.count()):
+                if self.backup_plugin_selector.itemData(index) == previous_id:
+                    self.backup_plugin_selector.setCurrentIndex(index)
+                    break
+
+        self.backup_plugin_selector.blockSignals(False)
+
+        if self.backup_plugin_selector.count():
+            self.load_selected_plugin_backups()
+        else:
+            self.backup_status.setText(
+                "Keine installierten AI-Plugins oder vorhandenen Backups gefunden."
+            )
+
+    @staticmethod
+    def _format_backup_date(backup: dict) -> str:
+        """Zeigt den tatsächlichen Backup-Zeitpunkt in lokaler Zeit."""
+        backup_id = str(backup.get("name") or "").strip()
+
+        try:
+            created = datetime.strptime(
+                backup_id, "%Y%m%dT%H%M%S%fZ"
+            ).replace(tzinfo=timezone.utc)
+        except ValueError:
+            raw_date = str(backup.get("created_at") or "").strip()
+            if not raw_date:
+                return "unbekannt"
+            try:
+                created = datetime.fromisoformat(
+                    raw_date.replace("Z", "+00:00")
+                )
+                if created.tzinfo is None:
+                    created = created.replace(tzinfo=timezone.utc)
+            except ValueError:
+                return raw_date
+
+        return created.astimezone().strftime("%d.%m.%Y, %H:%M:%S Uhr")
+
+    def load_selected_plugin_backups(self, *_):
+        self.backup_list.clear()
+        self.backup_details.clear()
+        self._update_backup_buttons()
+        plugin_id = self.backup_plugin_selector.currentData()
+        if not plugin_id:
+            return
+        try:
+            response = self._ai_service().list_plugin_backups(str(plugin_id))
+            if not isinstance(response, dict):
+                raise ValueError("Ungültige Backup-Antwort vom AI-Node.")
+            backups = response.get("backups")
+            if not isinstance(backups, list):
+                raise ValueError("Ungültige Backup-Liste vom AI-Node.")
+        except (AINodeConnectionError, RuntimeError, OSError, ValueError) as error:
+            self.backup_status.setText(f"Backups nicht verfügbar: {error}")
+            return
+
+        for backup in backups:
+            if not isinstance(backup, dict):
+                continue
+            name = str(backup.get("name") or "").strip()
+            if not name:
+                continue
+            version = str(backup.get("version") or "unbekannt")
+            date = self._format_backup_date(backup)
+            size = backup.get("size_bytes")
+            try:
+                size_label = f"{int(size) / 1048576:.2f} MiB"
+            except (TypeError, ValueError, OverflowError):
+                size_label = "unbekannt"
+            item = QListWidgetItem(
+                f"Version {version}  |  {date}  |  {size_label}"
+            )
+            item.setData(Qt.ItemDataRole.UserRole, dict(backup))
+            self.backup_list.addItem(item)
+
+        self.backup_status.setText(
+            f"{self.backup_list.count()} Backup(s) für {plugin_id}."
+        )
+        if self.backup_list.count():
+            self.backup_list.setCurrentRow(0)
+        else:
+            self.backup_details.setPlainText(
+                "Für dieses Plugin sind keine Backups vorhanden."
+            )
+
+    def _selected_backup(self):
+        item = self.backup_list.currentItem()
+        if item is None:
+            return None
+        backup = item.data(Qt.ItemDataRole.UserRole)
+        if not isinstance(backup, dict) or not backup.get("name"):
+            return None
+        return backup
+
+    def _update_backup_buttons(self, *_):
+        selected = self._selected_backup() is not None
+        self.btn_backup_restore.setEnabled(selected)
+        self.btn_backup_delete.setEnabled(selected)
+
+    def _show_backup_details(self, *_):
+        backup = self._selected_backup()
+        if backup is None:
+            self.backup_details.clear()
+            return
+        size = backup.get("size_bytes")
+        try:
+            size_text = f"{int(size):,} Bytes"
+        except (TypeError, ValueError, OverflowError):
+            size_text = "unbekannt"
+        self.backup_details.setPlainText("\n".join([
+            f"Backup: {backup.get('name', '-')}",
+            f"Version: {backup.get('version') or 'unbekannt'}",
+            f"Erstellt: {self._format_backup_date(backup)}",
+            f"Größe: {size_text}",
+            f"Speicherort auf dem AI-Node: {backup.get('path') or '-'}",
+        ]))
+
+    def restore_selected_backup(self, *_):
+        plugin_id = self.backup_plugin_selector.currentData()
+        backup = self._selected_backup()
+        if not plugin_id or backup is None:
+            return
+        name = str(backup["name"])
+        answer = QMessageBox.question(
+            self,
+            "Plugin wiederherstellen",
+            f"Plugin: {plugin_id}\nBackup: {name}\n"
+            f"Version: {backup.get('version') or 'unbekannt'}\n\n"
+            "Die derzeit installierte Plugin-Version wird ersetzt. "
+            "Wiederherstellung wirklich starten?",
+            QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
+            QMessageBox.StandardButton.No,
+        )
+        if answer != QMessageBox.StandardButton.Yes:
+            return
+        try:
+            result = self._ai_service().rollback_plugin(str(plugin_id), name)
+            if not isinstance(result, dict):
+                raise ValueError("Ungültige Rückmeldung des AI-Nodes.")
+        except (AINodeConnectionError, RuntimeError, OSError, ValueError) as error:
+            QMessageBox.warning(self, "Wiederherstellung fehlgeschlagen", str(error))
+            return
+        QMessageBox.information(
+            self, "Wiederherstellung", "AI-Node hat die Wiederherstellung beantwortet."
+        )
+        self.load_selected_plugin_backups()
+        self.load_ai_plugins()
+
+    def delete_selected_backup(self, *_):
+        plugin_id = self.backup_plugin_selector.currentData()
+        backup = self._selected_backup()
+        if not plugin_id or backup is None:
+            return
+        name = str(backup["name"])
+        answer = QMessageBox.question(
+            self,
+            "Backup endgültig löschen",
+            f"Plugin: {plugin_id}\nBackup: {name}\n"
+            f"Version: {backup.get('version') or 'unbekannt'}\n\n"
+            "Dieses Backup wird unwiderruflich gelöscht. Fortfahren?",
+            QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
+            QMessageBox.StandardButton.No,
+        )
+        if answer != QMessageBox.StandardButton.Yes:
+            return
+        try:
+            result = self._ai_service().delete_plugin_backup(str(plugin_id), name)
+            if not isinstance(result, dict) or result.get("status") != "deleted":
+                raise ValueError("AI-Node hat das Löschen nicht bestätigt.")
+        except (AINodeConnectionError, RuntimeError, OSError, ValueError) as error:
+            QMessageBox.warning(self, "Backup löschen fehlgeschlagen", str(error))
+            return
+        self.load_selected_plugin_backups()
 
     def _build_mediahub_tab(self):
         layout = QVBoxLayout(self.mediahub_tab)
@@ -1529,6 +1818,8 @@ class PluginStorePanel(QWidget):
             self.load_ai_plugins()
         elif current is self.compute_tab:
             self.load_compute_plugins()
+        elif current is self.backups_tab:
+            self.load_backup_plugins()
 
     def _installed_mediahub_plugins(self) -> dict[str, object]:
         try:
@@ -2150,7 +2441,11 @@ class PluginStorePanel(QWidget):
 
             plan = response.get("plan", {})
 
-            if not self._plan_ready(plan):
+            ready_for_confirmation = (
+                response.get("status") == "ready_for_confirmation"
+            )
+
+            if not ready_for_confirmation and not self._plan_ready(plan):
                 QMessageBox.warning(
                     self,
                     "AI-Plugin noch nicht installierbar",
@@ -2158,20 +2453,88 @@ class PluginStorePanel(QWidget):
                 )
                 return False
 
+        plugin_id = str(
+            package.get("plugin_id") or ""
+        ) if isinstance(package, dict) else ""
+
+        if not plugin_id:
+            QMessageBox.warning(
+                self,
+                "AI-Plugin installieren",
+                "Die Plugin-ID fehlt im Installationsplan.",
+            )
+            return False
+
+        confirm_error = None
         try:
             result = service.confirm_install_plan(
                 plan_id,
                 sha256,
             )
         except Exception as error:
+            confirm_error = error
+            if "zeitüberschreitung" not in str(error).lower():
+                QMessageBox.warning(
+                    self,
+                    "AI-Plugin installieren",
+                    str(error),
+                )
+                return False
+            result = {}
+
+        import time
+        from PySide6.QtWidgets import QApplication
+
+        deadline = time.monotonic() + 60.0
+        plugin = {}
+        last_error = None
+
+        while True:
+            try:
+                installed = service.list_plugins()
+                for candidate in installed:
+                    if (
+                        isinstance(candidate, dict)
+                        and str(candidate.get("id") or candidate.get("plugin_id") or "")
+                        == plugin_id
+                    ):
+                        plugin = candidate
+                        break
+
+                if plugin:
+                    if plugin.get("error"):
+                        last_error = str(plugin["error"])
+                        break
+                    if (
+                        plugin.get("enabled") is True
+                        and plugin.get("loaded") is True
+                    ):
+                        break
+            except Exception as error:
+                last_error = str(error)
+
+            remaining = deadline - time.monotonic()
+            if remaining <= 0:
+                break
+
+            QApplication.processEvents()
+            time.sleep(min(2.0, remaining))
+        else:
+            pass
+
+        if not (
+            plugin.get("enabled") is True
+            and plugin.get("loaded") is True
+            and not plugin.get("error")
+        ):
+            details = last_error or str(confirm_error or "Plugin nicht bereit.")
             QMessageBox.warning(
                 self,
                 "AI-Plugin installieren",
-                str(error),
+                "Die Installation konnte nicht als abgeschlossen "
+                f"bestätigt werden.\n\n{details}",
             )
             return False
-
-        plugin = result.get("plugin", {})
 
         name = (
             str(

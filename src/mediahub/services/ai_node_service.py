@@ -146,6 +146,64 @@ class AINodeService:
 
         return [item for item in plugins if isinstance(item, dict)]
 
+    def list_backup_plugin_ids(self) -> list[str]:
+        """Liest alle Plugin-IDs mit vorhandenen AI-Node-Backups."""
+        response = self._request_json(
+            "GET",
+            "/plugins/backups/overview",
+        )
+        if not isinstance(response, dict):
+            raise ValueError("Ungültige Backup-Übersicht vom AI-Node.")
+
+        plugin_ids = response.get("plugin_ids")
+        if not isinstance(plugin_ids, list):
+            raise ValueError("Plugin-IDs fehlen in der Backup-Übersicht.")
+
+        if not all(isinstance(item, str) for item in plugin_ids):
+            raise ValueError("Ungültige Plugin-ID in der Backup-Übersicht.")
+
+        return plugin_ids
+
+    def list_plugin_backups(self, plugin_id: str) -> dict[str, Any]:
+        """Liest vorhandene Plugin-Backups vom AI-Node."""
+        from urllib.parse import quote
+
+        plugin = quote(plugin_id, safe="")
+        return self._request_json(
+            "GET",
+            f"/plugins/{plugin}/backups",
+        )
+
+    def delete_plugin_backup(
+        self,
+        plugin_id: str,
+        backup_name: str,
+    ) -> dict[str, Any]:
+        """Löscht ein ausgewähltes Plugin-Backup."""
+        from urllib.parse import quote
+
+        plugin = quote(plugin_id, safe="")
+        backup = quote(backup_name, safe="")
+        return self._request_json(
+            "DELETE",
+            f"/plugins/{plugin}/backups/{backup}",
+        )
+
+    def rollback_plugin(
+        self,
+        plugin_id: str,
+        backup_name: str,
+    ) -> dict[str, Any]:
+        """Stellt eine gesicherte Plugin-Version wieder her."""
+        from urllib.parse import quote
+
+        plugin = quote(plugin_id, safe="")
+        backup = quote(backup_name, safe="")
+        return self._request_json(
+            "POST",
+            f"/plugins/{plugin}/rollback/{backup}",
+        )
+
     def create_install_plan(
         self,
         package_path: str | Path,
@@ -197,6 +255,7 @@ class AINodeService:
             "POST",
             f"/plugins/plan/{self._plan_id(plan_id)}/confirm",
             headers=headers,
+            timeout=60.0,
         )
 
     def cancel_install_plan(
@@ -447,6 +506,7 @@ class AINodeService:
         *,
         body: bytes | None = None,
         headers: dict[str, str] | None = None,
+        timeout: float | None = None,
     ) -> dict[str, Any]:
         request_headers = self._headers()
         if headers:
@@ -462,7 +522,7 @@ class AINodeService:
         try:
             with urllib.request.urlopen(
                 request,
-                timeout=self.timeout,
+                timeout=self.timeout if timeout is None else timeout,
             ) as response:
                 raw = response.read().decode("utf-8")
         except urllib.error.HTTPError as error:

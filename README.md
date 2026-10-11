@@ -1,38 +1,56 @@
-# MediaHub v1.0.23
+# MediaHub v1.0.24
 
 MediaHub ist ein lokales PySide6-Programm zum Verwalten von YouTube-Kanälen, Playlists, Video-Downloads, Plex-Importen und separat installierbaren Erweiterungen.
 
-## Neu und verbessert in v1.0.23
+## Neu und verbessert in v1.0.24
 
-﻿# MediaHub – AI-Node- und AI-Plugin-Integration
+# MediaHub v1.0.24
 
-## Änderungen
+## Raspberry-Pi-AI-Node: Plugin-Backups und Wiederherstellung
 
-- AI-Node-Verbindungsstatus überarbeitet und zuverlässiger aktualisiert.
-- Erkennung und Anzeige der AI-Node-Version verbessert.
-- AI-Node-Heartbeat und Anzeige der letzten Aktivität korrigiert.
-- Unterstützung der lokalen AI-Node-Statusseite im Heimnetz ergänzt.
-- AI-Plugin-Katalog vollständig in die vorhandene AI-Plugin-Verwaltung integriert.
-- Installierte AI-Node-Plugins und verfügbare Katalog-Plugins werden gemeinsam dargestellt.
-- Neuer Plugin-Status und Filter „Nicht installiert“ ergänzt.
-- Katalogeinträge werden mit bereits installierten AI-Node-Plugins zusammengeführt, sodass keine doppelten Einträge entstehen.
-- „AI-Katalog aktualisieren“ aktualisiert die sichtbaren verfügbaren und installierten AI-Plugins.
-- Nicht installierte Raspberry-Pi-AI-Plugins können direkt über „Aus Katalog installieren“ installiert werden.
-- Katalogpakete werden vor der Installation über SHA-256 verifiziert.
-- Die Installation verwendet weiterhin den sicheren AI-Node-Installationsplan mit Benutzerbestätigung.
-- Der bestehende manuelle Installer für `.mhaiplugin`-/ZIP-Pakete bleibt erhalten.
-- Nach erfolgreicher Installation wird die AI-Plugin-Liste automatisch neu geladen.
-- AI-Node- und Compute-Node-Service wurden an die aktualisierte Status- und Verbindungsbehandlung angepasst.
+- Neuer Reiter „Backups & Wiederherstellung“ in der Plugin-Verwaltung.
+- Anzeige vorhandener Plugin-Backups direkt im MediaHub-Hauptprogramm.
+- Backups bleiben auch nach der Deinstallation eines AI-Node-Plugins sichtbar.
+- Nicht mehr installierte Plugins werden in der Auswahl mit „(nicht installiert)“ gekennzeichnet.
+- Anzeige von Plugin-Version, Erstellungsdatum und Backup-Größe.
+- Korrekte Umrechnung der UTC-Backup-Zeitstempel in die lokale Uhrzeit.
+- Vereinfachte Backup-Liste mit Version, Datum und Größe.
+- Zusätzliche Detailansicht mit Backup-ID und Speicherort auf dem AI-Node.
+- Wiederherstellung eines ausgewählten Plugin-Backups mit vorheriger Bestätigung.
+- Endgültiges Löschen einzelner Backups mit Sicherheitsabfrage.
+- Aktualisierung der Backup-Liste und Beibehaltung der Plugin-Auswahl beim Neuladen.
 
-## Getestet
+## AI-Node-Kommunikation
 
-- AI-Node-Verbindung erfolgreich.
-- AI-Plugin-Katalog wird in MediaHub angezeigt.
-- Nicht installierte Plugins werden korrekt dargestellt und gefiltert.
-- Installation eines AI-Plugins direkt aus dem Katalog erfolgreich getestet.
-- Installiertes Plugin wird anschließend korrekt in MediaHub erkannt.
-- Installiertes Plugin wird auf der AI-Node-Statusseite angezeigt.
-- Erneute Katalogaktualisierung erzeugt keinen doppelten Plugin-Eintrag.
+- Neue API-Anbindung zum Abrufen aller Plugin-IDs mit vorhandenen Backups.
+- Neue Service-Funktionen zum Auflisten, Wiederherstellen und Löschen von Plugin-Backups.
+- Verbesserte Prüfung der vom AI-Node zurückgegebenen Backup-Daten.
+- Unterstützung individueller Zeitlimits für API-Anfragen.
+- Installationsbestätigung mit einem Zeitlimit von 60 Sekunden.
+
+## AI-Plugin-Installation
+
+- Verbesserte Verarbeitung von Installationsplänen mit dem Status `ready_for_confirmation`.
+- Zusätzliche Prüfung auf eine gültige Plugin-ID.
+- Nach der Installationsbestätigung wird der tatsächliche Plugin-Status auf dem AI-Node kontrolliert.
+- Bei einer Zeitüberschreitung der Bestätigung wird geprüft, ob die Installation trotzdem abgeschlossen wurde.
+- Eine Installation gilt erst als bestätigt, wenn das Plugin aktiviert und geladen ist.
+- Zusätzliche Fehlermeldungen, wenn ein Plugin nicht erfolgreich bereitgestellt werden konnte.
+
+## Tests und Prüfung
+
+- Backup-Anzeige nach Deinstallation eines AI-Node-Plugins erfolgreich getestet.
+- Wiederherstellung des GLiNER-Plugins v0.1.1 aus einem vorhandenen Backup erfolgreich getestet.
+- Backup-Erhalt nach der Wiederherstellung bestätigt.
+- Backup-Zeitstempel und Größenangaben anhand der AI-Node-Daten überprüft.
+- Python-Syntaxprüfung der geänderten MediaHub-Dateien erfolgreich.
+- Git-Diff-Prüfung ohne Fehler.
+
+## Hinweise
+
+- Die bestehende Raspberry-Pi-Online-Installation bleibt unverändert.
+- Die AI-Node-Backend-Erweiterungen werden separat im Repository MediaHub-AI-Node verwaltet.
+- Eine weitergehende Verbesserung der GUI-Reaktionsfähigkeit während längerer Installationsprüfungen bleibt für eine spätere Überarbeitung vorgesehen.
 
 Die vollständige Versionshistorie steht in [`CHANGELOG.md`](CHANGELOG.md).
 
