@@ -1753,11 +1753,51 @@ class PluginStorePanel(QWidget):
                     )
                 )
 
-                result = client.install_plugin(
+                response = client.create_install_plan(
                     verified_package,
                     sha256=sha256,
                     replace=replace,
                 )
+                plan_id = str(response.get("plan_id") or "")
+                package_info = response.get("package") or {}
+                plan = response.get("plan") or {}
+                if not plan_id or not isinstance(plan, dict) or not isinstance(package_info, dict):
+                    raise RuntimeError("Windows Compute Node hat keinen gueltigen Installationsplan geliefert.")
+                if str(package_info.get("sha256") or "").lower() != sha256.lower():
+                    raise RuntimeError("Die Pruefsumme des Installationsplans stimmt nicht ueberein.")
+                python_packages = plan.get("python_packages") or []
+                plugin_dependencies = plan.get("plugin_dependencies") or []
+                if not isinstance(python_packages, list) or not isinstance(plugin_dependencies, list):
+                    raise RuntimeError("Ungueltige Abhaengigkeiten im Installationsplan.")
+                details = [
+                    f"Plugin: {package_info.get('name') or plugin.name}",
+                    f"Version: {package_info.get('version') or plugin.version}",
+                    f"Windows Compute Node: {node.name or node.node_id}",
+                    f"Aktion: {action}",
+                    "",
+                    "Python-Pakete (werden ggf. im isolierten Runtime-Ordner installiert):",
+                    *([f"  - {item}" for item in python_packages] if python_packages else ["  Keine"]),
+                    "",
+                    "Benoetigte Node-Plugins (werden NICHT automatisch installiert):",
+                    *([f"  - {item.get('id', 'unbekannt')}" for item in plugin_dependencies if isinstance(item, dict)]
+                      if plugin_dependencies else ["  Keine"]),
+                    "",
+                    "Diese Installation und die angezeigten Python-Pakete jetzt freigeben?",
+                ]
+                try:
+                    approval = QMessageBox.question(
+                        self, "Windows-Installationsplan", "\n".join(details),
+                        QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
+                        QMessageBox.StandardButton.No,
+                    )
+                    if approval != QMessageBox.StandardButton.Yes:
+                        return
+                    result = client.confirm_install_plan(plan_id, sha256)
+                finally:
+                    try:
+                        client.cancel_install_plan(plan_id)
+                    except ComputeNodeConnectionError:
+                        pass
 
         except (
             ComputeNodeConnectionError,

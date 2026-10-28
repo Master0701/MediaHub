@@ -1,56 +1,33 @@
-# MediaHub v1.0.24
+# MediaHub v1.0.25
 
 MediaHub ist ein lokales PySide6-Programm zum Verwalten von YouTube-Kanälen, Playlists, Video-Downloads, Plex-Importen und separat installierbaren Erweiterungen.
 
-## Neu und verbessert in v1.0.24
+## Neu und verbessert in v1.0.25
 
-# MediaHub v1.0.24
+# MediaHub v1.0.25
 
-## Raspberry-Pi-AI-Node: Plugin-Backups und Wiederherstellung
+## Windows Compute Node – sichere Plugin-Installation
 
-- Neuer Reiter „Backups & Wiederherstellung“ in der Plugin-Verwaltung.
-- Anzeige vorhandener Plugin-Backups direkt im MediaHub-Hauptprogramm.
-- Backups bleiben auch nach der Deinstallation eines AI-Node-Plugins sichtbar.
-- Nicht mehr installierte Plugins werden in der Auswahl mit „(nicht installiert)“ gekennzeichnet.
-- Anzeige von Plugin-Version, Erstellungsdatum und Backup-Größe.
-- Korrekte Umrechnung der UTC-Backup-Zeitstempel in die lokale Uhrzeit.
-- Vereinfachte Backup-Liste mit Version, Datum und Größe.
-- Zusätzliche Detailansicht mit Backup-ID und Speicherort auf dem AI-Node.
-- Wiederherstellung eines ausgewählten Plugin-Backups mit vorheriger Bestätigung.
-- Endgültiges Löschen einzelner Backups mit Sicherheitsabfrage.
-- Aktualisierung der Backup-Liste und Beibehaltung der Plugin-Auswahl beim Neuladen.
+- Die Installation von `.mhaiplugin`-Paketen über den MediaHub-Plugin-Store wurde auf einen zweistufigen Ablauf umgestellt: zunächst Installationsplan erstellen, anschließend ausdrücklich bestätigen.
+- MediaHub ruft dafür die Plan-Schnittstelle des Windows Compute Node auf und führt die eigentliche Installation erst nach Zustimmung im Plugin-Store aus.
+- Vor der Bestätigung zeigt MediaHub Pluginname, Version, Ziel-Node, vorgesehene Aktion sowie die im Plan genannten Python-Pakete und Node-Plugin-Abhängigkeiten an.
+- Python-Pakete werden, soweit erforderlich, im isolierten Runtime-Ordner des Node-Plugins installiert. Benötigte zusätzliche Node-Plugins werden nicht stillschweigend installiert.
+- Die SHA-256-Prüfsumme des vom Node zurückgegebenen Installationsplans wird mit dem geprüften Plugin-Paket abgeglichen. Ungültige oder nicht passende Planinformationen führen zum Abbruch.
+- Plan-ID und SHA-256-Prüfsumme werden vor der Bestätigung geprüft. Die Kommunikation mit dem Node berücksichtigt weiterhin die konfigurierte Token-Authentifizierung.
+- Nicht bestätigte beziehungsweise nach der Bestätigung nicht mehr benötigte Installationspläne werden nach Möglichkeit über die Node-Schnittstelle verworfen.
+- Fehler bei der Kommunikation oder bei ungültigen Installationsantworten werden als Node-Verbindungs- beziehungsweise Installationsfehler behandelt.
 
-## AI-Node-Kommunikation
+## Kompatibilität
 
-- Neue API-Anbindung zum Abrufen aller Plugin-IDs mit vorhandenen Backups.
-- Neue Service-Funktionen zum Auflisten, Wiederherstellen und Löschen von Plugin-Backups.
-- Verbesserte Prüfung der vom AI-Node zurückgegebenen Backup-Daten.
-- Unterstützung individueller Zeitlimits für API-Anfragen.
-- Installationsbestätigung mit einem Zeitlimit von 60 Sekunden.
+- Die aktualisierte Installationsfunktion setzt einen Windows Compute Node mit Unterstützung für die Endpunkte `/plugins/plan` und `/plugins/plan/{plan_id}/confirm` voraus.
+- Der Windows Compute Node v0.1.4 und die vorbereiteten Node-Plugin-Versionen werden getrennt vom MediaHub-Hauptprogramm bereitgestellt; sie sind nicht Bestandteil dieses Hauptprogramm-Releases.
+- Die bestehende Raspberry-Pi-Installation und deren Online-Installer werden durch diese Änderung nicht ersetzt.
 
-## AI-Plugin-Installation
+## Release
 
-- Verbesserte Verarbeitung von Installationsplänen mit dem Status `ready_for_confirmation`.
-- Zusätzliche Prüfung auf eine gültige Plugin-ID.
-- Nach der Installationsbestätigung wird der tatsächliche Plugin-Status auf dem AI-Node kontrolliert.
-- Bei einer Zeitüberschreitung der Bestätigung wird geprüft, ob die Installation trotzdem abgeschlossen wurde.
-- Eine Installation gilt erst als bestätigt, wenn das Plugin aktiviert und geladen ist.
-- Zusätzliche Fehlermeldungen, wenn ein Plugin nicht erfolgreich bereitgestellt werden konnte.
-
-## Tests und Prüfung
-
-- Backup-Anzeige nach Deinstallation eines AI-Node-Plugins erfolgreich getestet.
-- Wiederherstellung des GLiNER-Plugins v0.1.1 aus einem vorhandenen Backup erfolgreich getestet.
-- Backup-Erhalt nach der Wiederherstellung bestätigt.
-- Backup-Zeitstempel und Größenangaben anhand der AI-Node-Daten überprüft.
-- Python-Syntaxprüfung der geänderten MediaHub-Dateien erfolgreich.
-- Git-Diff-Prüfung ohne Fehler.
-
-## Hinweise
-
-- Die bestehende Raspberry-Pi-Online-Installation bleibt unverändert.
-- Die AI-Node-Backend-Erweiterungen werden separat im Repository MediaHub-AI-Node verwaltet.
-- Eine weitergehende Verbesserung der GUI-Reaktionsfähigkeit während längerer Installationsprüfungen bleibt für eine spätere Überarbeitung vorgesehen.
+- Zielversion: MediaHub v1.0.25.
+- Die Versionsanhebung, die Aktualisierung von README und Changelog sowie Build und Veröffentlichung erfolgen ausschließlich über den vorhandenen MediaHub-Release-Assistenten.
+- Release-Tag, GitHub-Release-Titel und GitHub-Release-Beschreibung müssen die Version v1.0.25 und diese aktuellen Änderungen wiedergeben.
 
 Die vollständige Versionshistorie steht in [`CHANGELOG.md`](CHANGELOG.md).
 

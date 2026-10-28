@@ -742,14 +742,14 @@ class ComputeNodeClient:
 
         return result
 
-    def install_plugin(
+    def create_install_plan(
         self,
         package_path: str | Path,
         *,
         sha256: str,
         replace: bool = False,
     ) -> dict:
-        """Installiert ein .mhaiplugin-Paket auf dem Compute Node."""
+        """Prueft das Paket und erzeugt einen Installationsplan ohne Installation."""
 
         package = Path(package_path)
 
@@ -794,7 +794,7 @@ class ComputeNodeClient:
 
         request = urllib.request.Request(
             self.config.base_url
-            + "/plugins/install",
+            + "/plugins/plan",
             data=package.read_bytes(),
             headers=headers,
             method="POST",
@@ -868,6 +868,52 @@ class ComputeNodeClient:
             )
 
         return result
+
+    def confirm_install_plan(self, plan_id: str, sha256: str) -> dict:
+        import re
+        if not re.fullmatch(r"[0-9a-f]{32}", plan_id):
+            raise ComputeNodeConnectionError("Ungueltige Plan-ID.")
+        if not re.fullmatch(r"[0-9a-fA-F]{64}", sha256):
+            raise ComputeNodeConnectionError("Ungueltige SHA-256-Pruefsumme.")
+        headers = {"X-Plugin-SHA256": sha256.lower()}
+        if self.config.api_token:
+            headers["Authorization"] = "Bearer " + self.config.api_token
+        request = urllib.request.Request(
+            self.config.base_url + f"/plugins/plan/{plan_id}/confirm",
+            data=b"", headers=headers, method="POST",
+        )
+        try:
+            with urllib.request.urlopen(request, timeout=max(self.timeout, 180.0)) as response:
+                result = json.loads(response.read().decode("utf-8"))
+        except urllib.error.HTTPError as error:
+            try:
+                detail = json.loads(error.read().decode("utf-8"))
+                message = str(detail.get("detail") or detail.get("error") or error)
+            except (UnicodeDecodeError, json.JSONDecodeError, AttributeError):
+                message = str(error)
+            raise ComputeNodeConnectionError(message) from error
+        except (urllib.error.URLError, TimeoutError, OSError, ValueError) as error:
+            raise ComputeNodeConnectionError(str(error)) from error
+        if not isinstance(result, dict):
+            raise ComputeNodeConnectionError("Ungueltige Installationsantwort.")
+        return result
+
+    def cancel_install_plan(self, plan_id: str) -> dict:
+        import re
+        if not re.fullmatch(r"[0-9a-f]{32}", plan_id):
+            raise ComputeNodeConnectionError("Ungueltige Plan-ID.")
+        headers = {}
+        if self.config.api_token:
+            headers["Authorization"] = "Bearer " + self.config.api_token
+        request = urllib.request.Request(
+            self.config.base_url + f"/plugins/plan/{plan_id}",
+            headers=headers, method="DELETE",
+        )
+        try:
+            with urllib.request.urlopen(request, timeout=self.timeout) as response:
+                return json.loads(response.read().decode("utf-8"))
+        except (urllib.error.URLError, TimeoutError, OSError, ValueError) as error:
+            raise ComputeNodeConnectionError(str(error)) from error
 
     def uninstall_plugin(
         self,
